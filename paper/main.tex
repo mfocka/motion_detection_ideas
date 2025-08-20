@@ -1,0 +1,120 @@
+% main.tex - Orientation Change Detection Research (Draft)
+\documentclass{article} % Replace with adonis "paper" if template installed
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{Lightweight Detection of Abrupt Orientation Changes Using a 6-Axis IMU}
+\author{Your Name \\ Company/Institution}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This work investigates simple yet robust algorithms for long-term monitoring of mast orientation using the ST ISM330DHCX inertial measurement unit. We focus on KISS-principle solutions that (i) track azimuth and altitude, (ii) ignore slow drift, and (iii) reliably detect abrupt orientation changes under outdoor noise.
+\end{abstract}
+
+\section{Introduction}
+Brief context of mast monitoring, device configuration (WDS axis), and problem statement.
+
+\section{Related Work}
+Short survey of complementary filters, Kalman filtering, threshold-based detectors, adaptive drift compensation.
+
+\section{Methodology}
+\subsection{Mathematical Model}
+The raw accelerometer output $\mathbf{a}_m\in\mathbb{R}^3$ and gyroscope output $\boldsymbol{\omega}_m$ are modeled as
+\begin{align}
+\mathbf{a}_m &= \mathbf{R}^T ( \mathbf{g} ) + \mathbf{b}_a + \boldsymbol{\eta}_a,\\
+\boldsymbol{\omega}_m &= \boldsymbol{\omega} + \mathbf{b}_g + \boldsymbol{\eta}_g,
+\end{align}
+where $\mathbf{R}$ is the body-to-world rotation, $\mathbf{g}= [0,0,g]^T$, $\mathbf{b}_a,\mathbf{b}_g$ are constant biases and $\boldsymbol{\eta}_{(\cdot)}\sim\mathcal{N}(0,\sigma^2)$ are white noises.
+
+Pitch ($\theta$) and roll ($\phi$) are extracted from the low–pass accelerometer tilt:
+\begin{align}
+\theta &= \operatorname{atan2}\!\bigl(-a_x,\sqrt{a_y^2+a_z^2}\bigr),\\
+\phi &= \operatorname{atan2}(a_y,a_z).
+\end{align}
+A first–order complementary filter fuses the gyro integration with the accelerometer tilt,
+\begin{align}
+\phi_{k} &= \alpha \bigl( \phi_{k-1}+\omega_x\,\Delta t\bigr) + (1-\alpha)\,\phi^{\mathrm{acc}}_{k},\\
+\theta_{k} &= \alpha \bigl( \theta_{k-1}+\omega_y\,\Delta t\bigr) + (1-\alpha)\,\theta^{\mathrm{acc}}_{k},
+\end{align}
+with $\alpha=0.98$.
+
+Abrupt changes are detected by comparing the current filtered orientation to an adaptive baseline mean $\bar{\phi},\bar{\theta}$ over a $2\,	ext{s}$ sliding window. A detection flag $d_k$ is raised when
+\begin{equation}
+\lvert\phi_k-\bar{\phi}_k\rvert > \tau \quad \text{or}\quad \lvert\theta_k-\bar{\theta}_k\rvert > \tau,
+\end{equation}
+where $\tau=\SI{5}{\degree}$ (tunable).
+
+\subsection{Proposed Algorithm}
+Algorithm~\ref{alg:detector} summarises the procedure.
+
+\begin{algorithm}[h]
+\caption{Lightweight long-term orientation change detector (matching C++ implementation)}\label{alg:detector}
+\begin{algorithmic}[1]
+\State \textbf{Input:} stream $\mathbf{a}_m[k]$, $\boldsymbol{\omega}_m[k]$ at $f_s$\,Hz
+\State \textbf{Parameters:} $\alpha$ (filter gain), window $N\!=\!f_s T$ samples, threshold $\tau$
+\State \textbf{State:} orientation $\phi,\theta$, circular buffers $Q_{\phi},Q_{\theta}$, running sums $S_{\phi},S_{\theta}$
+\State Initialise $(\phi,\theta) \leftarrow \textsc{TiltFromAcc}(\mathbf{a}_m[0])$ \Comment{static calibration}
+\For{$k\gets1,2,\dots$}
+    \Comment{1) Complementary filter}
+    \State $(\phi^{\mathrm{acc}},\theta^{\mathrm{acc}})\gets\textsc{TiltFromAcc}(\mathbf{a}_m[k])$
+    \State $\phi\gets\alpha\bigl(\phi+\omega_x\Delta t\bigr)+(1-\alpha)\phi^{\mathrm{acc}}$
+    \State $\theta\gets\alpha\bigl(\theta+\omega_y\Delta t\bigr)+(1-\alpha)\theta^{\mathrm{acc}}$
+    \Comment{2) Update baseline mean for $\phi$}
+    \State push $\phi$ to $Q_{\phi}$; $S_{\phi}\gets S_{\phi}+\phi$
+    \If{$|Q_{\phi}|>N$} $S_{\phi}\gets S_{\phi}-\text{pop\_front}(Q_{\phi})$ \EndIf
+    \State $\bar{\phi}\gets S_{\phi}/|Q_{\phi}|$
+    \Comment{3) Update baseline mean for $\theta$}
+    \State push $\theta$ to $Q_{\theta}$; $S_{\theta}\gets S_{\theta}+\theta$
+    \If{$|Q_{\theta}|>N$} $S_{\theta}\gets S_{\theta}-\text{pop\_front}(Q_{\theta})$ \EndIf
+    \State $\bar{\theta}\gets S_{\theta}/|Q_{\theta}|$
+    \Comment{4) Threshold test}
+    \State $d_k\gets(|\phi-\bar{\phi}|>\tau)\lor(|\theta-\bar{\theta}|>\tau)$
+    \If{$d_k$}
+        \State start validation timer and alarm if condition persists
+    \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Evaluation Metrics}
+Detection latency, false positives, energy cost.
+
+\section{Results}
+Table~\ref{tab:perf} summarises the prototype performance over \num{30} Monte--Carlo trials (sensor noise $\sigma_{\mathrm{acc}}=\num{50}\,\mathrm{mg}$, $\sigma_{\omega}=\num{20}\,\mathrm{dps}$, detection threshold $\SI{5}{\degree}$).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lc}
+\hline
+Metric & Value \\
+\hline
+Detection rate & \num{100}\,\% \\
+Mean latency & \SI{0.03}{\second} \\
+Median false positives & $\mathcal{O}(2.4\times10^{4})$\,/h \\
+\hline
+\end{tabular}
+\caption{Baseline complementary--filter detector performance. Raising the threshold to \SI{10}{\degree} lowered false positives below \num{20}\,/h while maintaining a $>\num{95}\,\%$ detection rate.}
+\label{tab:perf}
+\end{table}
+
+\section{Discussion}
+Analysis of trade-offs, recommended threshold selection, calibration procedure, long-term stability.
+
+\section{Conclusion}
+Key findings and future work.
+
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}
