@@ -1,0 +1,50 @@
+% main.tex - Orientation Change Detection Research (Draft)
+\documentclass{article} % Replace with adonis "paper" if template installed
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{siunitx}
+
+\title{Lightweight Detection of Abrupt Orientation Changes Using a 6-Axis IMU}
+\author{Your Name \\ Company/Institution}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This work investigates simple yet robust algorithms for long-term monitoring of mast orientation using the ST ISM330DHCX inertial measurement unit. We focus on KISS-principle solutions that (i) track azimuth and altitude, (ii) ignore slow drift, and (iii) reliably detect abrupt orientation changes under outdoor noise.
+\end{abstract}
+
+\section{Introduction}
+Brief context of mast monitoring, device configuration (WDS axis), and problem statement.
+
+\section{Related Work}
+Short survey of complementary filters, Kalman filtering, threshold-based detectors, adaptive drift compensation.
+
+\section{Methodology}
+\subsection{Sensor Model and Simulation}
+Describe generated synthetic dataset (accelerometer $[-40,-120,-800]\,\text{mg}\pm50$; gyro $[12,-15,8]\,\text{dps}\pm20$) with an abrupt event.
+
+\subsection{Algorithms Evaluated}
+1. Tilt-only detection via low-pass accelerometer.
+2. Complementary filter (acc + gyro) with pitch/roll correction.
+3. Angular-rate spike detector.
+4. Hybrid approach with validation timer.
+
+\subsection{Evaluation Metrics}
+Detection latency, false positives, energy cost.
+
+\section{Results}
+Summarise performance table and figures (to be filled once notebook evaluation complete).
+
+\section{Discussion}
+Analysis of trade-offs, recommended threshold selection, calibration procedure, long-term stability.
+
+\section{Conclusion}
+Key findings and future work.
+
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}
