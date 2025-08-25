@@ -1,0 +1,1 @@
+/usr/bin/c++ -Xlinker --dependency-file=CMakeFiles/wds_orient.dir/link.d CMakeFiles/wds_orient.dir/src/main.cpp.o CMakeFiles/wds_orient.dir/src/orientation_filter.cpp.o CMakeFiles/wds_orient.dir/src/change_detection.cpp.o CMakeFiles/wds_orient.dir/src/baseline.cpp.o -o wds_orient
