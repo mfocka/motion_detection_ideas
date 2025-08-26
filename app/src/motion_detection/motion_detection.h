@@ -39,7 +39,8 @@ class Console;
 // Constants
 static constexpr float SAMPLE_RATE_HZ = 104.0f;
 static constexpr float SAMPLE_PERIOD_S = 1.0f / SAMPLE_RATE_HZ;
-static constexpr uint32_t SAMPLE_PERIOD_US = 9615;         // 104Hz = 9615 microseconds
+static constexpr uint32_t SAMPLE_PERIOD_US = static_cast<uint32_t>(1000000.0f / SAMPLE_RATE_HZ); // 9615
+static constexpr uint32_t CALIBRATION_SAMPLES = static_cast<uint32_t>(SAMPLE_RATE_HZ * 60); // 6240
 static constexpr uint32_t BAD_SAMPLE_THRESHOLD = 104 * 10; // 10 seconds of bad samples
 
 /**
@@ -221,7 +222,6 @@ private:
     bool _has_reference;
     bool _calibrated;
     uint32_t _calibration_sample_count;
-    static constexpr uint32_t CALIBRATION_SAMPLES = 104 * 60; // 1 minute
 
 
     Quaternion _quat_list[CALIBRATION_SAMPLES];
@@ -256,12 +256,12 @@ private:
     SensorData _azimuth_angle;
 
     // Gyro noise detection
-    static constexpr float GYRO_NOISE_THRESHOLD_DPS = 50.0f;   // Jet blast detection
-    static constexpr uint32_t GYRO_NOISE_SETTLE_SAMPLES = 520; // 5 seconds
-    bool _high_gyro_noise_detected;
-    uint32_t _gyro_noise_sample_count;
-    float _gyro_magnitude_history[10];
-    uint32_t _gyro_history_index;
+    // static constexpr float GYRO_NOISE_THRESHOLD_DPS = 50.0f;   // Jet blast detection
+    // static constexpr uint32_t GYRO_NOISE_SETTLE_SAMPLES = 520; // 5 seconds
+    // bool _high_gyro_noise_detected;
+    // uint32_t _gyro_noise_sample_count;
+    // float _gyro_magnitude_history[10];
+    // uint32_t _gyro_history_index;
 
     // EEPROM
     bool _validateEEPROMData(float gyro_bias[]);
@@ -269,10 +269,12 @@ private:
     bool _initializeMotionDIWithBias(float gyro_bias[]);
 
     bool _initializeMotionDI();
+    bool _initializeMotionEstimator();
     bool _startMonitoring();
     void _processStateMachine();
     // void _preFilters(const MotionSensorData& data);
     void _updateMotionDI(const MotionSensorData &data);
+    void _updateMotionEstimator(const MotionSensorData &data);
     void _calculateAnglesToReference(const Quaternion &current, const Quaternion &reference,
                                      float &azimuth, float &altitude, float &zenith);
     bool _checkMotionThresholds();

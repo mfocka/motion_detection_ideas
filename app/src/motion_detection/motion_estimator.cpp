@@ -12,6 +12,9 @@
 #include <cmath>
 
 // Constants
+
+#define M_PI		3.14159265358979323846	/* pi */
+#define M_PI_2		1.57079632679489661923	/* pi/2 */
 static constexpr float DEG_TO_RAD = M_PI / 180.0f;
 static constexpr float RAD_TO_DEG = 180.0f / M_PI;
 static constexpr float G_TO_MS2 = 9.80665f;
@@ -119,7 +122,7 @@ MotionEstimator::Output MotionEstimator::update(const float accel[3], const floa
     _updateSimpleFilter(gyro_corrected);
     _updateComplementaryFilter(accel_corrected, gyro_corrected);
     
-    // Combine filters using smart logic
+    // Combine filters using (?) logic
     _combineFilters(output);
     
     // Detect large changes
@@ -187,7 +190,7 @@ void MotionEstimator::_updateComplementaryFilter(const float accel[3], const flo
 
 void MotionEstimator::_combineFilters(Output& output)
 {
-    // Smart combination logic based on your testing results:
+    //combination logic based on testing results:
     // - Azimuth (yaw): Simple filter works better but can be noisy
     // - Tilt (pitch/roll): Complementary filter has less drift
     
@@ -196,7 +199,7 @@ void MotionEstimator::_combineFilters(Output& output)
     
     // Check if complementary filter shows significant change
     float yaw_diff = std::abs(_comp_yaw_deg - _prev_yaw_deg);
-    if (yaw_diff < 1.0f) { // Small change threshold
+    if (yaw_diff < 10.0f) { // Small change threshold
         // If complementary filter shows small change, trust simple filter
         output.yaw_deg = _simple_yaw_deg;
     } else {
@@ -238,16 +241,6 @@ void MotionEstimator::_setReferenceAngles()
     _has_reference = true;
 }
 
-void MotionEstimator::_convertWDStoENU(const float wds[3], float enu[3])
-{
-    // Transformation matrix WDS -> ENU
-    // WDS: X-West, Y-Down, Z-South
-    // ENU: X-East, Y-North, Z-Up
-    enu[0] = -wds[0];  // East = -West
-    enu[1] = -wds[2];  // North = -South
-    enu[2] = -wds[1];  // Up = -Down
-}
-
 float MotionEstimator::_tiltAngleFromAccel(const float accel[3], int axis)
 {
     // Convert mg to m/s²
@@ -277,4 +270,36 @@ float MotionEstimator::_normalizeAngle(float angle_deg)
         angle_deg += 360.0f;
     }
     return angle_deg;
+}
+
+
+void MotionEstimator::updateCompleteEulerAngles(const float other_euler_angles[3], const float trust[3], float resulting_euler_angles[3]) {
+    if(!isReady()) {
+        return;
+    }
+    const float yaw = other_euler_angles[0];
+    const float pitch = other_euler_angles[1];
+    const float roll = other_euler_angles[2];
+
+    resulting_euler_angles[0] = yaw;
+    resulting_euler_angles[1] = pitch; 
+    resulting_euler_angles[2] = roll;
+    if (fabsf(yaw) > 1){
+        if(fabsf(_prev_yaw_deg) > 10){
+            resulting_euler_angles[0] = _prev_yaw_deg;
+        } else{
+            resulting_euler_angles[0] = (trust[0] * yaw) + ((1-trust[0]) * _prev_yaw_deg);
+        }
+    }
+    if (fabsf(pitch) > 10){
+        if(fabsf(_prev_pitch_deg) < 10){
+            resulting_euler_angles[1] = (trust[1] * pitch) + ((1-trust[1])*_prev_pitch_deg); 
+        }
+    }
+    if (fabsf(roll) > 5){
+        if(fabsf(_prev_roll_deg) < 5){
+            resulting_euler_angles[2] = (trust[2] * roll) + ((1-trust[2])*_prev_roll_deg); 
+        }
+    }
+
 }

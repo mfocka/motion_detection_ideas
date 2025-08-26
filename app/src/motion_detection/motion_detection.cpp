@@ -14,8 +14,6 @@
 #include "globals.h"
 #include "PLCMsg.h"
 
-#define M_PI		3.14159265358979323846	/* pi */
-#define M_PI_2		1.57079632679489661923	/* pi/2 */
 
 extern Console *console;
 
@@ -48,9 +46,9 @@ MotionDetection::MotionDetection()
     , _state(MotionDetectionState::STARTUP)
     , _altitude_angle(0, ALTITUDE_DEV, "Altitude deviation from set point angle")
     , _azimuth_angle(0, AZIMUTH_DEV, "Azimuth deviation from set point angle")
-    , _high_gyro_noise_detected(false)
-    , _gyro_noise_sample_count(0)
-    , _gyro_history_index(0)
+    // , _high_gyro_noise_detected(false)
+    // , _gyro_noise_sample_count(0)
+    // , _gyro_history_index(0)
     , _timing()
     , _validation()
     , _calibration_context()
@@ -125,7 +123,7 @@ bool MotionDetection::_initializeMotionEstimator() {
     config.alpha = 0.98f;
     config.azimuth_threshold_deg = _azimuth_threshold;
     config.altitude_threshold_deg = _altitude_threshold;
-    config.calibration_samples = 500;
+    config.calibration_samples = CALIBRATION_SAMPLES;
     config.gyro_noise_threshold_dps = 0.1f;
     
     if (!_motion_estimator->initialize(config)) {
@@ -170,8 +168,8 @@ bool MotionDetection::_initializeMotionDI()
     // strcpy(_mdi_knobs.AccOrientation, "enu");
     // strcpy(_mdi_knobs.GyroOrientation, "enu");
 
-    strcpy(_mdi_knobs.AccOrientation, "wds");
-    strcpy(_mdi_knobs.GyroOrientation, "wds");
+    strcpy(_mdi_knobs.AccOrientation, "enu");
+    strcpy(_mdi_knobs.GyroOrientation, "enu");
     
     MotionDI_setKnobs(&_mdi_knobs);
     
@@ -223,15 +221,12 @@ bool MotionDetection::processData(MotionSensorData &data, uint64_t sample_timest
 
 void MotionDetection::_convertWDStoENU(const float wds[3], float enu[3])
 {
-    // WDS: X=West, Y=Down, Z=South
-    // ENU: X=East, Y=North, Z=Up
-    // enu[0] = -wds[0];  // East = -West
-    // enu[1] = -wds[2];  // North = -South
-    // enu[2] = -wds[1];  // Up = -Down
-
-    enu[0] = wds[0];  
-    enu[1] = wds[1];
-    enu[2] = wds[2];  
+    // Transformation matrix WDS -> ENU
+    // WDS: X-West, Y-Down, Z-South
+    // ENU: X-East, Y-North, Z-Up
+    enu[0] = -wds[0];  // East = -West
+    enu[1] = -wds[2];  // North = -South
+    enu[2] = -wds[1];  // Up = -Down
 }
 
 void MotionDetection::_updateMotionDI(const MotionSensorData &data)
@@ -300,7 +295,7 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
         _last_result.zenith_angle_degrees = output.roll_deg;
         
         if (PRINT_ANGLES) {
-            console->printOutput("MotionEstimator: Large change detected - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n",
+            console->printOutput("MotionEstimator: Large change detected - Yaw: %f deg, Pitch: %f deg, Roll: %f deg\n",
                                output.yaw_deg, output.pitch_deg, output.roll_deg);
         }
     }
@@ -351,12 +346,22 @@ void MotionDetection::_processStateMachine()
                 _state = MotionDetectionState::ERROR;
                 break;
             }
-            
+
 
             _calculateAnglesToReference(_current_quat, _reference_quat,
                 _last_result.azimuth_angle_degrees,
                 _last_result.altitude_angle_degrees,
                 _last_result.zenith_angle_degrees);
+
+            float trust_vector[3] = {0.1,0.9,0.5};
+            const float euler_angles[3] = {_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees};
+            float out_angles[3] = {0.0,0.0,0.0};
+            _motion_estimator->updateCompleteEulerAngles(euler_angles, trust_vector, out_angles);
+            
+            _last_result.altitude_angle_degrees = out_angles[1];
+            _last_result.azimuth_angle_degrees = out_angles[0];
+            _last_result.zenith_angle_degrees = out_angles[2];
+
             
             data16 altitude, azimuth;
             altitude.asUINT16 = static_cast<uint16_t>(fabsf(_last_result.altitude_angle_degrees) * 10.0f);
@@ -516,6 +521,8 @@ bool MotionDetection::calibrate()
     // Reset MotionDI calibration algorithms
     MotionDI_AccCal_reset();
     MotionDI_GyrCal_reset();
+
+    // TODO - RESET motion_estimator as well
     
     _state = MotionDetectionState::CALIBRATING;
     _calibration_sample_count = 0;
@@ -555,6 +562,8 @@ bool MotionDetection::_storeReferenceQuaternion()
 
 bool MotionDetection::saveCalibrationData()
 {
+
+    // TODO - add gyro bias from motion_estimator here as well as data.appEstGyroBiasX.asFloat = ....
     MDI_cal_output_t mdi_gyro_cal;
     float gyro_bias[3];
     
@@ -821,6 +830,8 @@ bool MotionDetection::_checkMotionThresholdsWithMode()
     
     bool altitude_exceeded = false;
     bool azimuth_exceeded = false;
+
+    // TODO - make sure we integrate the logic and angles from motion_estimator.
 
     // If both thresholds are non-positive then thresholds are effectively disabled
     if (_altitude_threshold <= 0.0f && _azimuth_threshold <= 0.0f) {

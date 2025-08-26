@@ -105,6 +105,9 @@ public:
      */
     bool isReady() const { return _calibration.is_calibrated; }
 
+
+    void updateCompleteEulerAngles(const float other_euler_angles[3], const float trust[3], float resulting_euler_angles[3]);
+
 private:
     // Configuration
     Config _config;
@@ -138,9 +141,9 @@ private:
     void _combineFilters(Output& output);
     bool _detectLargeChange(const Output& output);
     void _setReferenceAngles();
-    void _convertWDStoENU(const float wds[3], float enu[3]);
     float _tiltAngleFromAccel(const float accel[3], int axis);
     float _normalizeAngle(float angle_deg);
+
 };
 
 #endif // MOTION_ESTIMATOR_H
