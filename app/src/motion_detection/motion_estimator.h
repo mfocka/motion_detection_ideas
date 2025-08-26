@@ -18,6 +18,12 @@ typedef struct {
     float reset_threshold_deg;   // Threshold for yaw reset in simple filter
 } MotionEstimatorConfig;
 
+typedef struct {
+    float euler_angles_simple[3];
+    float euler_angles_complementary[3];
+    float euler_angles_fused[3];
+} ME_output_t;
+
 // Default configuration values
 #define MOTION_ESTIMATOR_DEFAULT_CONFIG { \
     .sample_rate_hz = 104.0f, \
@@ -32,8 +38,8 @@ typedef struct {
 // Motion event structure
 typedef struct {
     float yaw_angle;            // Yaw angle change in degrees (0 if no significant change)
-    float pitch_angle;          // Pitch angle change in degrees
-    float roll_angle;           // Roll angle change in degrees
+    float pitch_angle;          // Pitch angle change in degrees (0 if no significant change)
+    float roll_angle;           // Roll angle change in degrees (0 if no significant change)
     bool yaw_event;             // True if significant yaw change detected
     bool altitude_event;        // True if significant altitude change detected
 } MotionEvent;

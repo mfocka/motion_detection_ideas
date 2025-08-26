@@ -107,7 +107,7 @@ void MotionEstimator_Initialize(const MotionEstimatorConfig* config) {
 }
 
 bool MotionEstimator_ProcessData(const float acc_mg[3], const float gyro_dps[3], 
-                                uint64_t timestamp_us, MotionEvent* event) {
+                                uint64_t timestamp_us, ME_output_t me_out) {
     if (!event) return false;
     
     // Initialize event
@@ -175,39 +175,42 @@ bool MotionEstimator_ProcessData(const float acc_mg[3], const float gyro_dps[3],
     g_state.pitch = normalizeAngle(g_state.pitch);
     g_state.roll = normalizeAngle(g_state.roll);
     
-    // 3. Event detection
-    bool has_event = false;
+
+    // TODO: Event detection is NOT done here. We will return our angles here.
+    // Return MotionEstimatorOut me_out with angles.
+    // // 3. Event detection
+    // bool has_event = false;
     
-    // Check yaw stability in complementary filter
-    float yaw_complementary_change = angleDifference(g_state.yaw_complementary, g_state.prev_yaw_complementary);
-    bool yaw_stable = yaw_complementary_change < g_state.config.yaw_stability_threshold;
+    // // Check yaw stability in complementary filter
+    // float yaw_complementary_change = angleDifference(g_state.yaw_complementary, g_state.prev_yaw_complementary);
+    // bool yaw_stable = yaw_complementary_change < g_state.config.yaw_stability_threshold;
     
-    // Yaw event detection
-    if (yaw_stable) {
-        float yaw_simple_change = angleDifference(g_state.yaw_simple, g_state.prev_yaw_simple);
-        if (yaw_simple_change > g_state.config.threshold_azimuth) {
-            event->yaw_event = true;
-            event->yaw_angle = yaw_simple_change;
-            has_event = true;
-        }
-    } else {
-        // Yaw is drifting, don't trust simple filter
-        event->yaw_angle = 0.0f;
-    }
+    // // Yaw event detection
+    // if (yaw_stable) {
+    //     float yaw_simple_change = angleDifference(g_state.yaw_simple, g_state.prev_yaw_simple);
+    //     if (yaw_simple_change > g_state.config.threshold_azimuth) {
+    //         event->yaw_event = true;
+    //         event->yaw_angle = yaw_simple_change;
+    //         has_event = true;
+    //     }
+    // } else {
+    //     // Yaw is drifting, don't trust simple filter
+    //     event->yaw_angle = 0.0f;
+    // }
     
-    // Altitude event detection (pitch and roll)
-    float pitch_change = std::abs(g_state.pitch - g_state.prev_pitch);
-    float roll_change = std::abs(g_state.roll - g_state.prev_roll);
+    // // Altitude event detection (pitch and roll)
+    // float pitch_change = std::abs(g_state.pitch - g_state.prev_pitch);
+    // float roll_change = std::abs(g_state.roll - g_state.prev_roll);
     
-    if (pitch_change > g_state.config.threshold_altitude || 
-        roll_change > g_state.config.threshold_altitude) {
-        event->altitude_event = true;
-        event->pitch_angle = pitch_change;
-        event->roll_angle = roll_change;
-        has_event = true;
-    }
+    // if (pitch_change > g_state.config.threshold_altitude || 
+    //     roll_change > g_state.config.threshold_altitude) {
+    //     event->altitude_event = true;
+    //     event->pitch_angle = pitch_change;
+    //     event->roll_angle = roll_change;
+    //     has_event = true;
+    // }
     
-    return has_event;
+    // return has_event;
 }
 
 void MotionEstimator_GetCurrentAngles(float* yaw_deg, float* pitch_deg, float* roll_deg) {
