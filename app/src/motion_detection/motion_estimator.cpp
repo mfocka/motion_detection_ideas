@@ -273,33 +273,117 @@ float MotionEstimator::_normalizeAngle(float angle_deg)
 }
 
 
+void MotionEstimator::setGyroBiasFromExternal(const float gyro_bias[3]) {
+    // Set gyro bias from external source (e.g., MotionDI)
+    for (int i = 0; i < 3; i++) {
+        _calibration.gyro_bias[i] = gyro_bias[i];
+    }
+    
+    // Mark as calibrated if we have valid bias values
+    if (std::abs(gyro_bias[0]) < 100.0f && std::abs(gyro_bias[1]) < 100.0f && std::abs(gyro_bias[2]) < 100.0f) {
+        _calibration.is_calibrated = true;
+    }
+}
+
 void MotionEstimator::updateCompleteEulerAngles(const float other_euler_angles[3], const float trust[3], float resulting_euler_angles[3]) {
-    if(!isReady()) {
+    if (!isReady()) {
+        // If not ready, just pass through the input angles
+        for (int i = 0; i < 3; i++) {
+            resulting_euler_angles[i] = other_euler_angles[i];
+        }
         return;
     }
+    
     const float yaw = other_euler_angles[0];
     const float pitch = other_euler_angles[1];
     const float roll = other_euler_angles[2];
-
+    
+    // Initialize with input angles
     resulting_euler_angles[0] = yaw;
     resulting_euler_angles[1] = pitch; 
     resulting_euler_angles[2] = roll;
-    if (fabsf(yaw) > 1){
-        if(fabsf(_prev_yaw_deg) > 10){
-            resulting_euler_angles[0] = _prev_yaw_deg;
-        } else{
-            resulting_euler_angles[0] = (trust[0] * yaw) + ((1-trust[0]) * _prev_yaw_deg);
+    
+    // Yaw (Azimuth) - Low trust in MotionDI, use MotionEstimator for validation
+    if (std::abs(yaw) > 1.0f) {
+        if (std::abs(_prev_yaw_deg) > 10.0f) {
+            // If MotionEstimator shows large previous change, trust it more
+            resulting_euler_angles[0] = (trust[0] * yaw) + ((1.0f - trust[0]) * _prev_yaw_deg);
+        } else {
+            // Cross-check: if MotionEstimator shows small change, trust MotionDI more
+            float yaw_diff = std::abs(yaw - _prev_yaw_deg);
+            if (yaw_diff < 5.0f) {
+                // MotionEstimator agrees with MotionDI, use trust-based fusion
+                resulting_euler_angles[0] = (trust[0] * yaw) + ((1.0f - trust[0]) * _prev_yaw_deg);
+            } else {
+                // Disagreement detected, be conservative and use MotionEstimator
+                resulting_euler_angles[0] = _prev_yaw_deg;
+            }
         }
     }
-    if (fabsf(pitch) > 10){
-        if(fabsf(_prev_pitch_deg) < 10){
-            resulting_euler_angles[1] = (trust[1] * pitch) + ((1-trust[1])*_prev_pitch_deg); 
+    
+    // Pitch (Altitude) - High trust in MotionDI, use MotionEstimator for drift correction
+    if (std::abs(pitch) > 10.0f) {
+        if (std::abs(_prev_pitch_deg) < 10.0f) {
+            // MotionEstimator shows stable previous state, trust MotionDI
+            resulting_euler_angles[1] = (trust[1] * pitch) + ((1.0f - trust[1]) * _prev_pitch_deg);
+        } else {
+            // Cross-check: if both show large changes, validate the direction
+            float pitch_diff = std::abs(pitch - _prev_pitch_deg);
+            float estimator_diff = std::abs(_comp_pitch_deg - _prev_pitch_deg);
+            
+            if (std::signbit(pitch_diff) == std::signbit(estimator_diff)) {
+                // Same direction, trust MotionDI more
+                resulting_euler_angles[1] = (trust[1] * pitch) + ((1.0f - trust[1]) * _prev_pitch_deg);
+            } else {
+                // Different directions, be conservative
+                resulting_euler_angles[1] = _prev_pitch_deg;
+            }
         }
     }
-    if (fabsf(roll) > 5){
-        if(fabsf(_prev_roll_deg) < 5){
-            resulting_euler_angles[2] = (trust[2] * roll) + ((1-trust[2])*_prev_roll_deg); 
+    
+    // Roll - Normal trust in MotionDI, use MotionEstimator for validation
+    if (std::abs(roll) > 5.0f) {
+        if (std::abs(_prev_roll_deg) < 5.0f) {
+            // MotionEstimator shows stable previous state, trust MotionDI
+            resulting_euler_angles[2] = (trust[2] * roll) + ((1.0f - trust[2]) * _prev_roll_deg);
+        } else {
+            // Cross-check: validate roll changes
+            float roll_diff = std::abs(roll - _prev_roll_deg);
+            float estimator_diff = std::abs(_comp_roll_deg - _prev_roll_deg);
+            
+            if (std::abs(roll_diff - estimator_diff) < 15.0f) {
+                // Changes are similar, use trust-based fusion
+                resulting_euler_angles[2] = (trust[2] * roll) + ((1.0f - trust[2]) * _prev_roll_deg);
+            } else {
+                // Large disagreement, be conservative
+                resulting_euler_angles[2] = _prev_roll_deg;
+            }
         }
     }
+}
 
+void MotionEstimator::getDebugInfo(DebugInfo& debug_info) const {
+    // Fill debug info structure with current state
+    debug_info.simple_filter[0] = _simple_yaw_deg;
+    debug_info.simple_filter[1] = _simple_pitch_deg;
+    debug_info.simple_filter[2] = _simple_roll_deg;
+    
+    debug_info.complementary_filter[0] = _comp_yaw_deg;
+    debug_info.complementary_filter[1] = _comp_pitch_deg;
+    debug_info.complementary_filter[2] = _comp_roll_deg;
+    
+    debug_info.fused_output[0] = _prev_yaw_deg;
+    debug_info.fused_output[1] = _prev_pitch_deg;
+    debug_info.fused_output[2] = _prev_roll_deg;
+    
+    debug_info.previous_angles[0] = _prev_yaw_deg;
+    debug_info.previous_angles[1] = _prev_pitch_deg;
+    debug_info.previous_angles[2] = _prev_roll_deg;
+    
+    debug_info.reference_angles[0] = _ref_yaw_deg;
+    debug_info.reference_angles[1] = _ref_pitch_deg;
+    debug_info.reference_angles[2] = _ref_roll_deg;
+    
+    debug_info.is_calibrated = _calibration.is_calibrated;
+    debug_info.calibration_samples = _calibration.sample_count;
 }

@@ -61,6 +61,20 @@ public:
         uint64_t timestamp_us;                 // Timestamp of the measurement
     };
 
+    /**
+     * @brief Debug information structure for detailed logging
+     */
+    struct DebugInfo
+    {
+        float simple_filter[3];                 // [yaw, pitch, roll] from simple filter
+        float complementary_filter[3];          // [yaw, pitch, roll] from complementary filter
+        float fused_output[3];                 // [yaw, pitch, roll] from final fusion
+        float previous_angles[3];              // [yaw, pitch, roll] from previous update
+        float reference_angles[3];             // [yaw, pitch, roll] reference angles
+        bool is_calibrated;                    // Calibration status
+        uint32_t calibration_samples;          // Number of calibration samples collected
+    };
+
     MotionEstimator();
     ~MotionEstimator() = default;
 
@@ -105,8 +119,25 @@ public:
      */
     bool isReady() const { return _calibration.is_calibrated; }
 
+    /**
+     * @brief Set gyro bias from external source (e.g., MotionDI)
+     * @param gyro_bias Gyroscope bias values in dps
+     */
+    void setGyroBiasFromExternal(const float gyro_bias[3]);
 
+    /**
+     * @brief Update complete Euler angles with trust-based fusion and cross-checking
+     * @param other_euler_angles Input Euler angles from external source (e.g., MotionDI)
+     * @param trust Trust values for each axis [yaw, pitch, roll] (0.0 = no trust, 1.0 = full trust)
+     * @param resulting_euler_angles Output fused Euler angles
+     */
     void updateCompleteEulerAngles(const float other_euler_angles[3], const float trust[3], float resulting_euler_angles[3]);
+
+    /**
+     * @brief Get debug information for printing
+     * @param debug_info Output structure containing all filter states
+     */
+    void getDebugInfo(DebugInfo& debug_info) const;
 
 private:
     // Configuration

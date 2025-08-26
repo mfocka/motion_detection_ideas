@@ -187,6 +187,7 @@ public:
     static bool PRINT_QUAT;
     static bool PRINT_EVENTS;
     static bool PRINT_BIAS;
+    static bool PRINT_ESTIMATOR;
 
 private:
     // MotionDI structures

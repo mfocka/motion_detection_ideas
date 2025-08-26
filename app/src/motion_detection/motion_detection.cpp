@@ -23,6 +23,7 @@ bool MotionDetection::PRINT_ANGLES = true;
 bool MotionDetection::PRINT_QUAT = true;
 bool MotionDetection::PRINT_EVENTS = true;
 bool MotionDetection::PRINT_BIAS = true;
+bool MotionDetection::PRINT_ESTIMATOR = false;
 
 
 
@@ -134,6 +135,9 @@ bool MotionDetection::_initializeMotionEstimator() {
     console->printOutput("MotionEstimator initialized with parameters:\n");
     console->printOutput("  Sample Rate: %f hz, alpha: %f, calibration samples: %d\n",
                         config.sample_rate_hz, config.alpha, config.calibration_samples);
+    
+    // Always print initialization success
+    console->printOutput("MotionEstimator: Successfully initialized and ready for calibration\n");
 
     return true;
 }
@@ -278,7 +282,13 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     if (!_motion_estimator || !_motion_estimator->isReady()) {
         // Add calibration sample if not ready
         if (_motion_estimator) {
+            bool was_calibrated = _motion_estimator->isReady();
             _motion_estimator->addCalibrationSample(data.accel_mg, data.gyro_dps);
+            
+            // Print calibration completion message
+            if (!was_calibrated && _motion_estimator->isReady()) {
+                console->printOutput("MotionEstimator: Calibration completed successfully\n");
+            }
         }
         return;
     }
@@ -287,6 +297,24 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     MotionEstimator::Output output = _motion_estimator->update(
         data.accel_mg, data.gyro_dps, data.timestamp_us);
     
+    // Print detailed debug info if enabled
+    if (PRINT_ESTIMATOR) {
+        MotionEstimator::DebugInfo debug_info;
+        _motion_estimator->getDebugInfo(debug_info);
+        
+        console->printOutput("MotionEstimator Debug:\n");
+        console->printOutput("  Simple Filter: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                           debug_info.simple_filter[0], debug_info.simple_filter[1], debug_info.simple_filter[2]);
+        console->printOutput("  Complementary Filter: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                           debug_info.complementary_filter[0], debug_info.complementary_filter[1], debug_info.complementary_filter[2]);
+        console->printOutput("  Fused Output: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                           debug_info.fused_output[0], debug_info.fused_output[1], debug_info.fused_output[2]);
+        console->printOutput("  Reference: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                           debug_info.reference_angles[0], debug_info.reference_angles[1], debug_info.reference_angles[2]);
+        console->printOutput("  Calibration: %s (%d samples)\n",
+                           debug_info.is_calibrated ? "Ready" : "In Progress", debug_info.calibration_samples);
+    }
+    
     // Check for large changes and handle accordingly
     if (output.has_large_change) {
         // Update our internal state with the new angles
@@ -294,10 +322,9 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
         _last_result.altitude_angle_degrees = output.pitch_deg;
         _last_result.zenith_angle_degrees = output.roll_deg;
         
-        if (PRINT_ANGLES) {
-            console->printOutput("MotionEstimator: Large change detected - Yaw: %f deg, Pitch: %f deg, Roll: %f deg\n",
-                               output.yaw_deg, output.pitch_deg, output.roll_deg);
-        }
+        // Always print large change detection
+        console->printOutput("MotionEstimator: Large change detected - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n",
+                           output.yaw_deg, output.pitch_deg, output.roll_deg);
     }
 }
 void MotionDetection::_processStateMachine()
@@ -328,6 +355,12 @@ void MotionDetection::_processStateMachine()
                 console->printOutput("Final gyro bias: [%f, %f, %f] dps\n", 
                                    mdi_gyro_cal.Bias[0], mdi_gyro_cal.Bias[1], mdi_gyro_cal.Bias[2]);
                 
+                // Share gyro bias with MotionEstimator
+                if (_motion_estimator) {
+                    _motion_estimator->setGyroBiasFromExternal(mdi_gyro_cal.Bias);
+                    console->printOutput("MotionEstimator: Gyro bias shared from MotionDI\n");
+                }
+                
                 if (_storeReferenceQuaternion()) {
                     _state = MotionDetectionState::MONITORING;
                     _calibrated = true;
@@ -353,10 +386,24 @@ void MotionDetection::_processStateMachine()
                 _last_result.altitude_angle_degrees,
                 _last_result.zenith_angle_degrees);
 
+            // Trust vector: [yaw, pitch, roll] - High trust in MotionDI for altitude, low for azimuth, normal for roll
             float trust_vector[3] = {0.1,0.9,0.5};
             const float euler_angles[3] = {_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees};
             float out_angles[3] = {0.0,0.0,0.0};
+            
+            // Apply MotionEstimator fusion and cross-checking
             _motion_estimator->updateCompleteEulerAngles(euler_angles, trust_vector, out_angles);
+            
+            // Print fusion results if debug is enabled
+            if (PRINT_ESTIMATOR) {
+                console->printOutput("MotionEstimator Fusion:\n");
+                console->printOutput("  Input (MotionDI): Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                                   euler_angles[0], euler_angles[1], euler_angles[2]);
+                console->printOutput("  Output (Fused): Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+                                   out_angles[0], out_angles[1], out_angles[2]);
+                console->printOutput("  Trust Vector: [%.1f, %.1f, %.1f]\n",
+                                   trust_vector[0], trust_vector[1], trust_vector[2]);
+            }
             
             _last_result.altitude_angle_degrees = out_angles[1];
             _last_result.azimuth_angle_degrees = out_angles[0];
@@ -374,11 +421,13 @@ void MotionDetection::_processStateMachine()
                 _validation.reset();
                 _validation.setRequiredTime(_validation_time_minutes);
                 
+                // Print MotionEstimator event detection
+                console->printOutput("MotionEstimator: Motion event detected, entering validation state\n");
+                
                 if (PRINT_EVENTS) {
                     _printEventData(_timing.getCurrentTimeStampUs(), "VALIDATION_START");
                 }
             }
-        }
         break;
 
         case MotionDetectionState::VALIDATING:
