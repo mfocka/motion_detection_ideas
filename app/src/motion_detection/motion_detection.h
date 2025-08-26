@@ -28,8 +28,10 @@
 extern "C"
 {
 #include "motion_di.h"
-#include "motion_estimator.h"
 }
+
+// Forward declaration of our C++ MotionEstimator class
+class MotionEstimator;
 
 // Forward declarations
 class Console;
@@ -191,7 +193,9 @@ private:
     MDI_output_t _mdi_output;
     MDI_cal_output_t _mdi_acc_cal;
     MDI_cal_output_t _mdi_gyro_cal;
-    ME_output_t _me_output;
+    
+    // Our custom MotionEstimator
+    MotionEstimator* _motion_estimator;
 
 
 

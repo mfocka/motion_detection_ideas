@@ -57,6 +57,7 @@ MotionDetection::MotionDetection()
     , _operation_mode(MotionMode::THRESHOLD_ONLY)
     , _prev_altitude(0.0f)
     , _prev_azimuth(0.0f)
+    , _motion_estimator(nullptr)
 {
     list_of_sensor_ids.push_back(&_altitude_angle);
     list_of_sensor_ids.push_back(&_azimuth_angle);
@@ -70,6 +71,12 @@ MotionDetection::MotionDetection()
 MotionDetection::~MotionDetection()
 {
     if (_state != MotionDetectionState::STARTUP) {
+    }
+    
+    // Clean up MotionEstimator
+    if (_motion_estimator) {
+        delete _motion_estimator;
+        _motion_estimator = nullptr;
     }
 }
 
@@ -108,24 +115,29 @@ bool MotionDetection::initialize()
 
 bool MotionDetection::_initializeMotionEstimator() {
 
-    console->printOutput("MotionDetection: Initializing MotionEstimator for attittude estimation...\n");
+    console->printOutput("MotionDetection: Initializing MotionEstimator for attitude estimation...\n");
 
-    float freq = SAMPLE_RATE_HZ;
-    MotionEstimatorConfig config = MOTION_ESTIMATOR_DEFAULT_CONFIG;
-    MotionEstimator_Initialize(&config);
-
-    MotionEstimator_ResetComplementaryFilter();
-    MotionEstimator_ResetSimpleYawFilter();
-
+    // Create and initialize our custom MotionEstimator
+    _motion_estimator = new MotionEstimator();
+    
+    MotionEstimator::Config config;
+    config.sample_rate_hz = SAMPLE_RATE_HZ;
+    config.alpha = 0.98f;
+    config.azimuth_threshold_deg = _azimuth_threshold;
+    config.altitude_threshold_deg = _altitude_threshold;
+    config.calibration_samples = 500;
+    config.gyro_noise_threshold_dps = 0.1f;
+    
+    if (!_motion_estimator->initialize(config)) {
+        console->printOutput("ERROR: Failed to initialize MotionEstimator\n");
+        return false;
+    }
 
     console->printOutput("MotionEstimator initialized with parameters:\n");
     console->printOutput("  Sample Rate: %f hz, alpha: %f, calibration samples: %d\n",
                         config.sample_rate_hz, config.alpha, config.calibration_samples);
 
     return true;
-    
-
-    
 }
 
 bool MotionDetection::_initializeMotionDI()
@@ -268,25 +280,30 @@ void MotionDetection::_updateMotionDI(const MotionSensorData &data)
 }
 void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
 
-    uint64_t timestamp_us = data.timestamp_us;
-    float acc_mg[3];
-    float gyro_dps[3];
+    if (!_motion_estimator || !_motion_estimator->isReady()) {
+        // Add calibration sample if not ready
+        if (_motion_estimator) {
+            _motion_estimator->addCalibrationSample(data.accel_mg, data.gyro_dps);
+        }
+        return;
+    }
     
-    // Convert WDS -> ENU and mg -> g
-    float accel_enu[3];
-    float gyro_enu[3];
-    _convertWDStoENU(data.accel_mg, accel_enu);
-    _convertWDStoENU(data.gyro_dps, gyro_enu);
+    // Update motion estimation
+    MotionEstimator::Output output = _motion_estimator->update(
+        data.accel_mg, data.gyro_dps, data.timestamp_us);
     
-    acc_mg[0] = accel_enu[0] / 1000.0f;
-    acc_mg[1] = accel_enu[1] / 1000.0f;
-    acc_mg[2] = accel_enu[2] / 1000.0f;
-    
-    gyro_dps[0] = gyro_enu[0];
-    gyro_dps[1] = gyro_enu[1];
-    gyro_dps[2] = gyro_enu[2];
-    
-    bool _ = MotionEstimator_ProcessData(acc_mg, gyro_dps, timestamp_us, &_me_output);
+    // Check for large changes and handle accordingly
+    if (output.has_large_change) {
+        // Update our internal state with the new angles
+        _last_result.azimuth_angle_degrees = output.yaw_deg;
+        _last_result.altitude_angle_degrees = output.pitch_deg;
+        _last_result.zenith_angle_degrees = output.roll_deg;
+        
+        if (PRINT_ANGLES) {
+            console->printOutput("MotionEstimator: Large change detected - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n",
+                               output.yaw_deg, output.pitch_deg, output.roll_deg);
+        }
+    }
 }
 void MotionDetection::_processStateMachine()
 {
