@@ -20,6 +20,91 @@ static constexpr float RAD_TO_DEG = 180.0f / M_PI;
 static constexpr float G_TO_MS2 = 9.80665f;
 static constexpr float MG_TO_MS2 = G_TO_MS2 / 1000.0f;
 
+// // Simple 2nd order Butterworth low-pass filter implementation
+// class ButterworthFilter {
+// private:
+//     float a0, a1, a2, b0, b1, b2;
+//     float x1, x2, y1, y2;
+    
+// public:
+//     // Constructor to initialize filter coefficients
+//     // fs: sampling frequency, cutoff: cutoff frequency
+//     ButterworthFilter(float fs, float cutoff) : x1(0), x2(0), y1(0), y2(0) {
+//         // Normalize cutoff frequency
+//         float Wn = cutoff / fs;
+        
+//         // Calculate coefficients for 2nd order Butterworth filter
+//         // Using bilinear transform
+//         float K = tan(M_PI * Wn);
+//         float K2 = K * K;
+        
+//         // Normalized Butterworth polynomial for 2nd order: s^2 + 1.4142s + 1
+//         float Q = 0.7071f; // 1/sqrt(2) for Butterworth
+//         float norm = 1.0f + K/Q + K2;
+        
+//         b0 = K2 / norm;
+//         b1 = 2.0f * b0;
+//         b2 = b0;
+//         a1 = 2.0f * (K2 - 1.0f) / norm;
+//         a2 = (1.0f - K/Q + K2) / norm;
+//         a0 = 1.0f;
+//     }
+    
+//     // Apply filter to a single sample
+//     float filter(float input) {
+//         float output = b0*input + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+        
+//         // Update delay elements
+//         x2 = x1;
+//         x1 = input;
+//         y2 = y1;
+//         y1 = output;
+        
+//         return output;
+//     }
+    
+//     // Reset filter state
+//     void reset() {
+//         x1 = x2 = y1 = y2 = 0.0f;
+//     }
+// };
+
+// // Forward-backward filtering (zero-phase) implementation
+// void filtfilt(ButterworthFilter& filter, float* data, int length) {
+//     // Temporary array for filtered data
+//     float* temp = new float[length];
+    
+//     // Forward filtering
+//     filter.reset();
+//     for(int i = 0; i < length; i++) {
+//         temp[i] = filter.filter(data[i]);
+//     }
+    
+//     // Backward filtering
+//     filter.reset();
+//     for(int i = length-1; i >= 0; i--) {
+//         data[i] = filter.filter(temp[i]);
+//     }
+    
+//     delete[] temp;
+// }
+
+// // Main preprocessing function
+// void preprocess_imu(float* accel_x, float* accel_y, float* accel_z,
+//                    float* gyro_x, float* gyro_y, float* gyro_z,
+//                    int data_length, float fs=104.0f, float cutoff=5.0f) {
+    
+//     // Create Butterworth filter
+//     ButterworthFilter filter(fs, cutoff);
+    
+//     // Apply filtering to each axis
+//     filtfilt(filter, accel_x, data_length);
+//     filtfilt(filter, accel_y, data_length);
+//     filtfilt(filter, accel_z, data_length);
+//     filtfilt(filter, gyro_x, data_length);
+//     filtfilt(filter, gyro_y, data_length);
+//     filtfilt(filter, gyro_z, data_length);
+// }
 MotionEstimator::MotionEstimator()
     : _dt(0.0f)
     , _prev_yaw_deg(0.0f)
@@ -38,6 +123,7 @@ MotionEstimator::MotionEstimator()
 {
     // Initialize calibration data
     std::memset(&_calibration, 0, sizeof(_calibration));
+    _initPreprocessingFilter();
 }
 
 bool MotionEstimator::initialize(const Config& config)
@@ -117,10 +203,14 @@ MotionEstimator::Output MotionEstimator::update(const float accel[3], const floa
         accel_corrected[i] = accel[i] - _calibration.acc_bias[i];
         gyro_corrected[i] = gyro[i] - _calibration.gyro_bias[i];
     }
+    float accel_filtered[3] = {};
+    float gyro_filtered[3] = {};
+    _applyPreprocessingFilter(accel_corrected, accel_filtered, _accel_filtered_prev);
+    _applyPreprocessingFilter(gyro_corrected, gyro_filtered, _gyro_filtered_prev);
     
     // Update both filters
-    _updateSimpleFilter(gyro_corrected);
-    _updateComplementaryFilter(accel_corrected, gyro_corrected);
+    _updateSimpleFilter(gyro_filtered);
+    _updateComplementaryFilter(accel_filtered, gyro_filtered);
     
     // Combine filters using (?) logic
     _combineFilters(output);
@@ -147,7 +237,28 @@ void MotionEstimator::resetCalibration()
     _calibration.is_calibrated = false;
     _calibration.sample_count = 0;
 }
+void MotionEstimator::_initPreprocessingFilter() {
+    // Calculate alpha based on your desired cutoff frequency
+    // alpha = dt / (RC + dt) where RC = 1/(2*pi*cutoff)
+    // For fs=104Hz, dt = 1/104 ~~ 0.0096s
+    // For cutoff=5Hz, RC = 1/(2*pi*5) ~~ 0.0318
+    // alpha ~~ 0.0096 / (0.0318 + 0.0096) ~~ 0.232
+    
+    _alpha = 0.232f;
+    
+    // Initialize previous values
+    for (int i = 0; i < 3; i++) {
+        _accel_filtered_prev[i] = 0.0f;
+        _gyro_filtered_prev[i] = 0.0f;
+    }
+}
 
+void MotionEstimator::_applyPreprocessingFilter(const float input[3], float output[3], float prev[3]) {
+    for (int i = 0; i < 3; i++) {
+        output[i] = _alpha * input[i] + (1.0f - _alpha) * prev[i];
+        prev[i] = output[i];
+    }
+}
 void MotionEstimator::_updateSimpleFilter(const float gyro[3])
 {
     // Simple integration filter for all axes
@@ -271,8 +382,6 @@ float MotionEstimator::_normalizeAngle(float angle_deg)
     }
     return angle_deg;
 }
-
-
 void MotionEstimator::setGyroBiasFromExternal(const float gyro_bias[3]) {
     // Set gyro bias from external source (e.g., MotionDI)
     for (int i = 0; i < 3; i++) {

@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
+// #include "adb_types.h"
+// #include "sensor_data.h"
 
 /**
  * @brief Motion Estimator using combined simple and complementary filters
@@ -110,13 +112,6 @@ public:
      * @brief Reset calibration data
      */
     void resetCalibration();
-
-    /**
-     * @brief Check if estimator is ready (calibrated)
-     * @return true if ready
-     */
-    bool isReady() const { return _calibration.is_calibrated; }
-
     /**
      * @brief Set gyro bias from external source (e.g., MotionDI)
      * @param gyro_bias Gyroscope bias values in dps
@@ -136,6 +131,11 @@ public:
      * @param debug_info Output structure containing all filter states
      */
     void getDebugInfo(DebugInfo& debug_info) const;
+    /**
+     * @brief Check if estimator is ready (calibrated)
+     * @return true if ready
+     */
+    bool isReady() const { return _calibration.is_calibrated; }
 
 private:
     // Configuration
@@ -163,6 +163,14 @@ private:
     float _ref_pitch_deg;                       // Reference pitch angle
     float _ref_roll_deg;                        // Reference roll angle
     bool _has_reference;                         // True if reference angles are set
+    
+    // Filter
+    float _alpha;
+    float _accel_filtered_prev[3];
+    float _gyro_filtered_prev[3];
+    
+    void _initPreprocessingFilter();
+    void _applyPreprocessingFilter(const float input[3], float output[3], float prev[3]);
     
     // Internal methods
     void _updateSimpleFilter(const float gyro[3]);

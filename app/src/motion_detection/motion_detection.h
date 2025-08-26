@@ -284,6 +284,7 @@ private:
     bool _storeReferenceQuaternion();
     void _convertWDStoENU(const float wds[3], float enu[3]);
     void _detectAndHandleGyroNoise(const MotionSensorData &data);
+    void _updateAngles();
 
     // Post filter
 

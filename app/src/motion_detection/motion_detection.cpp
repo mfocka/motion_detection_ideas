@@ -23,7 +23,7 @@ bool MotionDetection::PRINT_ANGLES = true;
 bool MotionDetection::PRINT_QUAT = true;
 bool MotionDetection::PRINT_EVENTS = true;
 bool MotionDetection::PRINT_BIAS = true;
-bool MotionDetection::PRINT_ESTIMATOR = false;
+bool MotionDetection::PRINT_ESTIMATOR = true;
 
 
 
@@ -303,13 +303,13 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
         _motion_estimator->getDebugInfo(debug_info);
         
         console->printOutput("MotionEstimator Debug:\n");
-        console->printOutput("  Simple Filter: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+        console->printOutput("  Simple Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.simple_filter[0], debug_info.simple_filter[1], debug_info.simple_filter[2]);
-        console->printOutput("  Complementary Filter: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+        console->printOutput("  Complementary Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.complementary_filter[0], debug_info.complementary_filter[1], debug_info.complementary_filter[2]);
-        console->printOutput("  Fused Output: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+        console->printOutput("  Fused Output: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.fused_output[0], debug_info.fused_output[1], debug_info.fused_output[2]);
-        console->printOutput("  Reference: Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
+        console->printOutput("  Reference: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.reference_angles[0], debug_info.reference_angles[1], debug_info.reference_angles[2]);
         console->printOutput("  Calibration: %s (%d samples)\n",
                            debug_info.is_calibrated ? "Ready" : "In Progress", debug_info.calibration_samples);
@@ -323,7 +323,7 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
         _last_result.zenith_angle_degrees = output.roll_deg;
         
         // Always print large change detection
-        console->printOutput("MotionEstimator: Large change detected - Yaw: %.2f°, Pitch: %.2f°, Roll: %.2f°\n",
+        console->printOutput("MotionEstimator: Large change detected - Yaw: %f deg, Pitch: %f deg, Roll: %f deg\n",
                            output.yaw_deg, output.pitch_deg, output.roll_deg);
     }
 }
@@ -380,34 +380,10 @@ void MotionDetection::_processStateMachine()
                 break;
             }
 
-            _calculateAnglesToReference(_current_quat, _reference_quat,
-                _last_result.azimuth_angle_degrees,
-                _last_result.altitude_angle_degrees,
-                _last_result.zenith_angle_degrees);
 
-            // Trust vector: [yaw, pitch, roll] - High trust in MotionDI for altitude, low for azimuth, normal for roll
-            float trust_vector[3] = {0.1,0.9,0.5};
-            const float euler_angles[3] = {_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees};
-            float out_angles[3] = {0.0,0.0,0.0};
-            
-            // Apply MotionEstimator fusion and cross-checking
-            _motion_estimator->updateCompleteEulerAngles(euler_angles, trust_vector, out_angles);
-            
-            // Print fusion results if debug is enabled
-            if (PRINT_ESTIMATOR) {
-                console->printOutput("MotionEstimator Fusion:\n");
-                console->printOutput("  Input (MotionDI): Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
-                                   euler_angles[0], euler_angles[1], euler_angles[2]);
-                console->printOutput("  Output (Fused): Yaw=%.2f°, Pitch=%.2f°, Roll=%.2f°\n",
-                                   out_angles[0], out_angles[1], out_angles[2]);
-                console->printOutput("  Trust Vector: [%.1f, %.1f, %.1f]\n",
-                                   trust_vector[0], trust_vector[1], trust_vector[2]);
-            }
-            
-            _last_result.altitude_angle_degrees = out_angles[1];
-            _last_result.azimuth_angle_degrees = out_angles[0];
-            _last_result.zenith_angle_degrees = out_angles[2];
+            _updateAngles();
 
+            
             data16 altitude, azimuth;
             altitude.asUINT16 = static_cast<uint16_t>(fabsf(_last_result.altitude_angle_degrees) * 10.0f);
             azimuth.asUINT16 = static_cast<uint16_t>(fabsf(_last_result.azimuth_angle_degrees) * 10.0f);
@@ -431,10 +407,7 @@ void MotionDetection::_processStateMachine()
 
         case MotionDetectionState::VALIDATING:
         {
-            _calculateAnglesToReference(_current_quat, _reference_quat,
-                _last_result.azimuth_angle_degrees,
-                _last_result.altitude_angle_degrees,
-                _last_result.zenith_angle_degrees);
+            _updateAngles();
             
             _validation.update(SAMPLE_PERIOD_US);
             
@@ -453,6 +426,37 @@ void MotionDetection::_processStateMachine()
     }
 }
 
+void MotionDetection::_updateAngles(){
+
+            _calculateAnglesToReference(_current_quat, _reference_quat,
+                _last_result.azimuth_angle_degrees,
+                _last_result.altitude_angle_degrees,
+                _last_result.zenith_angle_degrees);
+
+            float trust_vector[3] = {0.1,0.9,0.5};
+            const float euler_angles[3] = {_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees};
+            float out_angles[3] = {0.0,0.0,0.0};
+            
+            // Apply MotionEstimator fusion and cross-checking
+            _motion_estimator->updateCompleteEulerAngles(euler_angles, trust_vector, out_angles);
+            
+            // Print fusion results if debug is enabled
+            if (PRINT_ESTIMATOR) {
+                console->printOutput("MotionEstimator Fusion:\n");
+                console->printOutput("  Input (MotionDI): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+                                   euler_angles[0], euler_angles[1], euler_angles[2]);
+                console->printOutput("  Output (Fused): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+                                   out_angles[0], out_angles[1], out_angles[2]);
+                console->printOutput("  Trust Vector: [%f, %f, %f]\n",
+                                   trust_vector[0], trust_vector[1], trust_vector[2]);
+            }
+            
+            _last_result.altitude_angle_degrees = out_angles[1];
+            _last_result.azimuth_angle_degrees = out_angles[0];
+            _last_result.zenith_angle_degrees = out_angles[2];
+
+}
+
 void MotionDetection::_updateValidationState()
 {
     bool altitude_exceeded = fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold;
@@ -466,9 +470,11 @@ void MotionDetection::_updateValidationState()
         if (PRINT_EVENTS) {
             _printEventData(_timing.getCurrentTimeStampUs(), "VALIDATION_CANCELLED");
         }
+        
         saveCalibrationData();
         return;
     }
+    
 
    if (_validation.isComplete()) {
         if (altitude_exceeded && azimuth_exceeded) {
