@@ -13,8 +13,6 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
-#include "adb_types.h"
-#include "sensor_data.h"
 
 /**
  * @brief Motion Estimator using combined simple and complementary filters

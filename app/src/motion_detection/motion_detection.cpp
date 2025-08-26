@@ -380,7 +380,6 @@ void MotionDetection::_processStateMachine()
                 break;
             }
 
-
             _calculateAnglesToReference(_current_quat, _reference_quat,
                 _last_result.azimuth_angle_degrees,
                 _last_result.altitude_angle_degrees,
@@ -409,7 +408,6 @@ void MotionDetection::_processStateMachine()
             _last_result.azimuth_angle_degrees = out_angles[0];
             _last_result.zenith_angle_degrees = out_angles[2];
 
-            
             data16 altitude, azimuth;
             altitude.asUINT16 = static_cast<uint16_t>(fabsf(_last_result.altitude_angle_degrees) * 10.0f);
             azimuth.asUINT16 = static_cast<uint16_t>(fabsf(_last_result.azimuth_angle_degrees) * 10.0f);
@@ -428,6 +426,7 @@ void MotionDetection::_processStateMachine()
                     _printEventData(_timing.getCurrentTimeStampUs(), "VALIDATION_START");
                 }
             }
+        }
         break;
 
         case MotionDetectionState::VALIDATING:
