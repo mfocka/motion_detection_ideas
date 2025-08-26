@@ -35,22 +35,13 @@ typedef struct {
     .reset_threshold_deg = 15.0f \
 }
 
-// Motion event structure
-typedef struct {
-    float yaw_angle;            // Yaw angle change in degrees (0 if no significant change)
-    float pitch_angle;          // Pitch angle change in degrees (0 if no significant change)
-    float roll_angle;           // Roll angle change in degrees (0 if no significant change)
-    bool yaw_event;             // True if significant yaw change detected
-    bool altitude_event;        // True if significant altitude change detected
-} MotionEvent;
-
 // Initialize the MotionEstimator with configuration
 void MotionEstimator_Initialize(const MotionEstimatorConfig* config);
 
-// Process new IMU data and return motion events
-// Returns true if any significant motion is detected
+// Process new IMU data and return orientation estimates
+// Returns true if data was processed successfully
 bool MotionEstimator_ProcessData(const float acc_mg[3], const float gyro_dps[3], 
-                                uint64_t timestamp_us, MotionEvent* event);
+                                uint64_t timestamp_us, ME_output_t* me_out);
 
 // Get current orientation estimates
 void MotionEstimator_GetCurrentAngles(float* yaw_deg, float* pitch_deg, float* roll_deg);

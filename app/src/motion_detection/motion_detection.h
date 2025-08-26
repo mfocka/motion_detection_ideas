@@ -28,6 +28,7 @@
 extern "C"
 {
 #include "motion_di.h"
+#include "motion_estimator.h"
 }
 
 // Forward declarations

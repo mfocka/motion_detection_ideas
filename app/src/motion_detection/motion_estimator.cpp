@@ -107,11 +107,11 @@ void MotionEstimator_Initialize(const MotionEstimatorConfig* config) {
 }
 
 bool MotionEstimator_ProcessData(const float acc_mg[3], const float gyro_dps[3], 
-                                uint64_t timestamp_us, ME_output_t me_out) {
-    if (!event) return false;
+                                uint64_t timestamp_us, ME_output_t* me_out) {
+    if (!me_out) return false;
     
-    // Initialize event
-    std::memset(event, 0, sizeof(MotionEvent));
+    // Initialize output
+    std::memset(me_out, 0, sizeof(ME_output_t));
     
     // Handle calibration if not yet calibrated
     if (!g_state.is_calibrated) {
@@ -175,42 +175,23 @@ bool MotionEstimator_ProcessData(const float acc_mg[3], const float gyro_dps[3],
     g_state.pitch = normalizeAngle(g_state.pitch);
     g_state.roll = normalizeAngle(g_state.roll);
     
-
-    // TODO: Event detection is NOT done here. We will return our angles here.
-    // Return MotionEstimatorOut me_out with angles.
-    // // 3. Event detection
-    // bool has_event = false;
+    // Populate output structure with the three angle arrays
+    // Simple filter angles: [yaw, pitch, roll]
+    me_out->euler_angles_simple[0] = g_state.yaw_simple;      // Yaw
+    me_out->euler_angles_simple[1] = g_state.pitch;           // Pitch
+    me_out->euler_angles_simple[2] = g_state.roll;            // Roll
     
-    // // Check yaw stability in complementary filter
-    // float yaw_complementary_change = angleDifference(g_state.yaw_complementary, g_state.prev_yaw_complementary);
-    // bool yaw_stable = yaw_complementary_change < g_state.config.yaw_stability_threshold;
+    // Complementary filter angles: [yaw, pitch, roll]
+    me_out->euler_angles_complementary[0] = g_state.yaw_complementary;  // Yaw
+    me_out->euler_angles_complementary[1] = g_state.pitch;             // Pitch
+    me_out->euler_angles_complementary[2] = g_state.roll;              // Roll
     
-    // // Yaw event detection
-    // if (yaw_stable) {
-    //     float yaw_simple_change = angleDifference(g_state.yaw_simple, g_state.prev_yaw_simple);
-    //     if (yaw_simple_change > g_state.config.threshold_azimuth) {
-    //         event->yaw_event = true;
-    //         event->yaw_angle = yaw_simple_change;
-    //         has_event = true;
-    //     }
-    // } else {
-    //     // Yaw is drifting, don't trust simple filter
-    //     event->yaw_angle = 0.0f;
-    // }
+    // Fused angles: Use simple filter for yaw, complementary for pitch/roll
+    me_out->euler_angles_fused[0] = g_state.yaw_simple;       // Yaw from simple filter
+    me_out->euler_angles_fused[1] = g_state.pitch;            // Pitch from complementary filter
+    me_out->euler_angles_fused[2] = g_state.roll;             // Roll from complementary filter
     
-    // // Altitude event detection (pitch and roll)
-    // float pitch_change = std::abs(g_state.pitch - g_state.prev_pitch);
-    // float roll_change = std::abs(g_state.roll - g_state.prev_roll);
-    
-    // if (pitch_change > g_state.config.threshold_altitude || 
-    //     roll_change > g_state.config.threshold_altitude) {
-    //     event->altitude_event = true;
-    //     event->pitch_angle = pitch_change;
-    //     event->roll_angle = roll_change;
-    //     has_event = true;
-    // }
-    
-    // return has_event;
+    return true; // Successfully processed data
 }
 
 void MotionEstimator_GetCurrentAngles(float* yaw_deg, float* pitch_deg, float* roll_deg) {

@@ -112,17 +112,17 @@ bool MotionDetection::_initializeMotionEstimator() {
 
     float freq = SAMPLE_RATE_HZ;
     MotionEstimatorConfig config = MOTION_ESTIMATOR_DEFAULT_CONFIG;
-    MotionEstimator_Initialize(config);
+    MotionEstimator_Initialize(&config);
 
     MotionEstimator_ResetComplementaryFilter();
     MotionEstimator_ResetSimpleYawFilter();
 
 
     console->printOutput("MotionEstimator initialized with parameters:\n");
-    console->printOutput("  Sample Rate: %f hz, alpha: %f, calibration samples: %f dps\n",
+    console->printOutput("  Sample Rate: %f hz, alpha: %f, calibration samples: %d\n",
                         config.sample_rate_hz, config.alpha, config.calibration_samples);
 
-    retrun true;
+    return true;
     
 
     
@@ -269,8 +269,8 @@ void MotionDetection::_updateMotionDI(const MotionSensorData &data)
 void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
 
     uint64_t timestamp_us = data.timestamp_us;
-    const float acc_mg[3];
-    const float gyro_dps[3];
+    float acc_mg[3];
+    float gyro_dps[3];
     
     // Convert WDS -> ENU and mg -> g
     float accel_enu[3];
@@ -278,15 +278,15 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     _convertWDStoENU(data.accel_mg, accel_enu);
     _convertWDStoENU(data.gyro_dps, gyro_enu);
     
-    accel_mg = accel_enu[0] / 1000.0f;
-    accel_mg = accel_enu[1] / 1000.0f;
-    accel_mg = accel_enu[2] / 1000.0f;
+    acc_mg[0] = accel_enu[0] / 1000.0f;
+    acc_mg[1] = accel_enu[1] / 1000.0f;
+    acc_mg[2] = accel_enu[2] / 1000.0f;
     
-    gyro_dps = gyro_enu[0];
-    gyro_dps = gyro_enu[1];
-    gyro_dps = gyro_enu[2];
+    gyro_dps[0] = gyro_enu[0];
+    gyro_dps[1] = gyro_enu[1];
+    gyro_dps[2] = gyro_enu[2];
     
-    bool _ = MotionEstimator_ProcessData(accel_mg, gyro_dps, timestamp_us, _me_out);
+    bool _ = MotionEstimator_ProcessData(acc_mg, gyro_dps, timestamp_us, &_me_output);
 }
 void MotionDetection::_processStateMachine()
 {
