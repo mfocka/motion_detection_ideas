@@ -30,7 +30,7 @@ extern "C"
 #include "motion_di.h"
 }
 
-// Forward declaration of our C++ MotionEstimator class
+// Forward declaration of our MotionEstimator class
 class MotionEstimator;
 
 // Forward declarations
@@ -42,6 +42,24 @@ static constexpr float SAMPLE_PERIOD_S = 1.0f / SAMPLE_RATE_HZ;
 static constexpr uint32_t SAMPLE_PERIOD_US = static_cast<uint32_t>(1000000.0f / SAMPLE_RATE_HZ); // 9615
 static constexpr uint32_t CALIBRATION_SAMPLES = static_cast<uint32_t>(SAMPLE_RATE_HZ * 60); // 6240
 static constexpr uint32_t BAD_SAMPLE_THRESHOLD = 104 * 10; // 10 seconds of bad samples
+
+/**
+ * @brief euler angles
+ */
+enum class EulerAngles {
+    YAW = 0,
+    PITCH = 1,
+    ROLL = 2
+};
+
+/**
+ * @brief horizontal coordinate system
+ */
+enum class HorizontalCoordinatesMapping {
+    AZIMUTH = 0,   // Maps to YAW
+    ALTITUDE = 1,  // Maps to PITCH  
+    ZENITH = 2     // Maps to ROLL
+};
 
 /**
  * @brief Motion modes
@@ -176,6 +194,14 @@ public:
     SensorData *getSensorData(std::uint8_t sensorId);
     std::list<SensorData *> list_of_sensor_ids;
 
+    // Resets
+    void _checkAndApplyPeriodicReset();
+    void _synchronizedEstimatorReset();
+    static constexpr uint32_t DRIFT_RESET_INTERVAL_SAMPLES = 104 * 60 * 60; // 1 hour at 104Hz
+    static constexpr float MAX_ANGLE_FOR_RESET_DEG = 2.0f; // Only reset if angles are small
+    uint64_t _last_estimator_reset_sample = 0;
+    bool _estimator_reset_pending = false;
+
     // Filters
     // - prefilters
     // MedianFilter median_filter;
@@ -223,10 +249,6 @@ private:
     bool _has_reference;
     bool _calibrated;
     uint32_t _calibration_sample_count;
-
-
-    Quaternion _quat_list[CALIBRATION_SAMPLES];
-    float _mean_quat_dist = 0;
 
     // Thresholds and timing
     float _altitude_threshold = 0.0f;
@@ -282,7 +304,19 @@ private:
     bool _validateSensorData(const MotionSensorData &data);
     void _updateValidationState();
     bool _storeReferenceQuaternion();
-    void _convertWDStoENU(const float wds[3], float enu[3]);
+    /**
+     * @brief Unified coordinate conversion from WDS to ENU
+     * @param wds Input in WDS coordinates (X-West, Y-Down, Z-South)  
+     * @param enu Output in ENU coordinates (X-East, Y-North, Z-Up)
+     */
+    static void _convertWDStoENU(const float wds[3], float enu[3]);
+    
+    /**
+     * @brief Apply consistent coordinate mapping using HorizontalCoordinatesMapping
+     * @param euler_angles Input euler angles [yaw, pitch, roll] in degrees
+     * @param horizontal_coords Output [azimuth, altitude, zenith] in degrees
+     */
+    void _applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3]);
     void _detectAndHandleGyroNoise(const MotionSensorData &data);
     void _updateAngles();
 
@@ -391,8 +425,8 @@ private:
 
     struct ModeConfig
     {
-        float altitude_drift_threshold_degree_per_second{0.0f};
-        float azimuth_drift_threshold_degree_per_second{0.0f};
+        float altitude_drift_threshold_degree_per_second{1.0f};
+        float azimuth_drift_threshold_degree_per_second{5.0f};
         bool enable_altitude_drift{false};
         bool enable_azimuth_drift{false};
     };

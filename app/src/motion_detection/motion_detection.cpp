@@ -18,9 +18,9 @@
 extern Console *console;
 
 bool MotionDetection::PRINT_RAW = true;
-bool MotionDetection::PRINT_INFO = true;
+bool MotionDetection::PRINT_INFO = false;
 bool MotionDetection::PRINT_ANGLES = true;
-bool MotionDetection::PRINT_QUAT = true;
+bool MotionDetection::PRINT_QUAT = false;
 bool MotionDetection::PRINT_EVENTS = true;
 bool MotionDetection::PRINT_BIAS = true;
 bool MotionDetection::PRINT_ESTIMATOR = true;
@@ -33,8 +33,8 @@ MotionDetection::MotionDetection()
     , _has_reference(false)
     , _calibrated(false)
     , _calibration_sample_count(0)
-    , _altitude_threshold(5.0f)
-    , _azimuth_threshold(10.0f)
+    , _altitude_threshold(15.0f)
+    , _azimuth_threshold(30.0f)
     , _validation_time_minutes(240)  // 4 hours default
     , _persistent_validation_time_us(0)
     , _was_validating(false)
@@ -121,7 +121,7 @@ bool MotionDetection::_initializeMotionEstimator() {
     
     MotionEstimator::Config config;
     config.sample_rate_hz = SAMPLE_RATE_HZ;
-    config.alpha = 0.98f;
+    config.alpha = 0.88f;
     config.azimuth_threshold_deg = _azimuth_threshold;
     config.altitude_threshold_deg = _altitude_threshold;
     config.calibration_samples = CALIBRATION_SAMPLES;
@@ -229,8 +229,20 @@ void MotionDetection::_convertWDStoENU(const float wds[3], float enu[3])
     // WDS: X-West, Y-Down, Z-South
     // ENU: X-East, Y-North, Z-Up
     enu[0] = -wds[0];  // East = -West
-    enu[1] = -wds[2];  // North = -South
+    enu[1] = -wds[2];  // North = -South  
     enu[2] = -wds[1];  // Up = -Down
+}
+void MotionDetection::_applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3])
+{
+    // Use the HorizontalCoordinatesMapping from header
+    // EulerAngles: YAW=0, PITCH=1, ROLL=2
+    // HorizontalCoordinatesMapping: AZIMUTH=, ALTITUDE=, ZENITH= # TODO: validate
+    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::AZIMUTH)] = 
+        euler_angles[static_cast<int>(EulerAngles::YAW)];
+    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ALTITUDE)] = 
+        euler_angles[static_cast<int>(EulerAngles::PITCH)];  
+    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ZENITH)] = 
+        euler_angles[static_cast<int>(EulerAngles::ROLL)];
 }
 
 void MotionDetection::_updateMotionDI(const MotionSensorData &data)
@@ -255,21 +267,7 @@ void MotionDetection::_updateMotionDI(const MotionSensorData &data)
     
     MotionDI_update(&_mdi_output, &mdi_input);
 
-    Quaternion q;
-    q.fromArray(_mdi_output.quaternion);
-
-    float distance_ = QuaternionMath::distance(_current_quat, q);
-    if(distance_ < _mean_quat_dist) {
-        _reference_quat = q;
-    }
-
-
     _current_quat.fromArray(_mdi_output.quaternion);
-    if (_state == MotionDetectionState::CALIBRATING)
-    {
-        _quat_list[_calibration_sample_count % CALIBRATION_SAMPLES] = _current_quat;
-    }
-    
     
     // Safety check for NaNs in MotionDI output
     if (isnan(_mdi_output.quaternion[0]) || isnan(_mdi_output.quaternion[1]) ||
@@ -282,8 +280,11 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     if (!_motion_estimator || !_motion_estimator->isReady()) {
         // Add calibration sample if not ready
         if (_motion_estimator) {
+            float accel_enu[3], gyro_enu[3];
+            _convertWDStoENU(data.accel_mg, accel_enu);
+            _convertWDStoENU(data.gyro_dps, gyro_enu);
             bool was_calibrated = _motion_estimator->isReady();
-            _motion_estimator->addCalibrationSample(data.accel_mg, data.gyro_dps);
+            _motion_estimator->addCalibrationSample(accel_enu, gyro_enu);
             
             // Print calibration completion message
             if (!was_calibrated && _motion_estimator->isReady()) {
@@ -294,38 +295,31 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     }
     
     // Update motion estimation
+    float accel_enu[3], gyro_enu[3];
+    _convertWDStoENU(data.accel_mg, accel_enu);
+    _convertWDStoENU(data.gyro_dps, gyro_enu);
+    
     MotionEstimator::Output output = _motion_estimator->update(
-        data.accel_mg, data.gyro_dps, data.timestamp_us);
+        accel_enu, gyro_enu, data.timestamp_us);
     
     // Print detailed debug info if enabled
-    if (PRINT_ESTIMATOR) {
+    if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
         MotionEstimator::DebugInfo debug_info;
         _motion_estimator->getDebugInfo(debug_info);
         
         console->printOutput("MotionEstimator Debug:\n");
-        console->printOutput("  Simple Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+        console->printOutputWoTime("  Simple Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.simple_filter[0], debug_info.simple_filter[1], debug_info.simple_filter[2]);
-        console->printOutput("  Complementary Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+        console->printOutputWoTime("  Complementary Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.complementary_filter[0], debug_info.complementary_filter[1], debug_info.complementary_filter[2]);
-        console->printOutput("  Fused Output: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+        console->printOutputWoTime("  Fused Output: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.fused_output[0], debug_info.fused_output[1], debug_info.fused_output[2]);
-        console->printOutput("  Reference: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
+        console->printOutputWoTime("  Reference: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
                            debug_info.reference_angles[0], debug_info.reference_angles[1], debug_info.reference_angles[2]);
-        console->printOutput("  Calibration: %s (%d samples)\n",
+        console->printOutputWoTime("  Calibration: %s (%d samples)\n",
                            debug_info.is_calibrated ? "Ready" : "In Progress", debug_info.calibration_samples);
     }
     
-    // Check for large changes and handle accordingly
-    if (output.has_large_change) {
-        // Update our internal state with the new angles
-        _last_result.azimuth_angle_degrees = output.yaw_deg;
-        _last_result.altitude_angle_degrees = output.pitch_deg;
-        _last_result.zenith_angle_degrees = output.roll_deg;
-        
-        // Always print large change detection
-        console->printOutput("MotionEstimator: Large change detected - Yaw: %f deg, Pitch: %f deg, Roll: %f deg\n",
-                           output.yaw_deg, output.pitch_deg, output.roll_deg);
-    }
 }
 void MotionDetection::_processStateMachine()
 {
@@ -346,19 +340,34 @@ void MotionDetection::_processStateMachine()
             MDI_cal_output_t mdi_gyro_cal;
             MotionDI_GyrCal_getParams(&mdi_gyro_cal);
             
-            // Simple calibration completion check
-            if(mdi_gyro_cal.Bias[0] == mdi_gyro_cal.Bias[1] && mdi_gyro_cal.Bias[1] == mdi_gyro_cal.Bias[2]){
-                break;
-            }
             if (_calibration_sample_count >= CALIBRATION_SAMPLES) {
-                console->printOutput("MotionDI calibration complete at sample %u\n", _calibration_sample_count);
-                console->printOutput("Final gyro bias: [%f, %f, %f] dps\n", 
-                                   mdi_gyro_cal.Bias[0], mdi_gyro_cal.Bias[1], mdi_gyro_cal.Bias[2]);
-                
+
+                // Simple calibration completion check
+                const float eps = 1e-67f;
+                if( fabsf(mdi_gyro_cal.Bias[0] - mdi_gyro_cal.Bias[1]) < eps &&
+                    fabsf(mdi_gyro_cal.Bias[1] - mdi_gyro_cal.Bias[2]) < eps) {
+                    mdi_gyro_cal.Bias[0] = -0.411;
+                    mdi_gyro_cal.Bias[1] = 0.587;
+                    mdi_gyro_cal.Bias[2] = 0.774;
+
+                    console->printOutput("MotionDI calibration did not complete at sample %u\n", _calibration_sample_count);
+                    console->printOutput("Default gyro bias: [%f, %f, %f] dps\n", 
+                        mdi_gyro_cal.Bias[0],
+                        mdi_gyro_cal.Bias[1],
+                        mdi_gyro_cal.Bias[2]
+                    );
+                }
+                else{
+                    console->printOutput("MotionDI calibration complete at sample %u\n", _calibration_sample_count);
+                    console->printOutput("Final gyro bias: [%f, %f, %f] dps\n", 
+                                    mdi_gyro_cal.Bias[0], mdi_gyro_cal.Bias[1], mdi_gyro_cal.Bias[2]);
+                }
                 // Share gyro bias with MotionEstimator
                 if (_motion_estimator) {
                     _motion_estimator->setGyroBiasFromExternal(mdi_gyro_cal.Bias);
-                    console->printOutput("MotionEstimator: Gyro bias shared from MotionDI\n");
+                    console->printOutput("MotionEstimator: Gyro bias shared from MotionDI and filters reset\n");
+                    // Force filter reset after calibration to start clean
+                    _motion_estimator->resetFilterStates(true);
                 }
                 
                 if (_storeReferenceQuaternion()) {
@@ -433,30 +442,45 @@ void MotionDetection::_updateAngles(){
                 _last_result.altitude_angle_degrees,
                 _last_result.zenith_angle_degrees);
 
-            float trust_vector[3] = {0.1,0.9,0.5};
-            const float euler_angles[3] = {_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees};
-            float out_angles[3] = {0.0,0.0,0.0};
+            // TODO: Define the reset behaviour properly
+            // if(_timing.total_samples_processed % 62400  == 0){
+            //     _motion_estimator->resetFilterStates(true);
+            // }
+            _checkAndApplyPeriodicReset();
+            
+            // TODO: Improve set-up of all this for updateCompleteEulerAngles
+            float mdi_euler_angles[3];
+            mdi_euler_angles[static_cast<int>(EulerAngles::YAW)] = _last_result.azimuth_angle_degrees;
+            mdi_euler_angles[static_cast<int>(EulerAngles::PITCH)] = _last_result.altitude_angle_degrees; 
+            mdi_euler_angles[static_cast<int>(EulerAngles::ROLL)] = _last_result.zenith_angle_degrees;
+            // Apply MotionEstimator fusion and cross-checking
+            float trust_vector[3] = {0.3f, 0.9f, 0.5f}; // Low trust in yaw, high trust in pitch, medium trust in roll
+            float fused_euler_angles[3] = {0.0f, 0.0f, 0.0f};
             
             // Apply MotionEstimator fusion and cross-checking
-            _motion_estimator->updateCompleteEulerAngles(euler_angles, trust_vector, out_angles);
+            _motion_estimator->updateCompleteEulerAngles(mdi_euler_angles, trust_vector, fused_euler_angles);
+
+            float horizontal_coords[3];
+            _applyHorizontalMapping(fused_euler_angles, horizontal_coords);
             
-            // Print fusion results if debug is enabled
-            if (PRINT_ESTIMATOR) {
+            // Update results with mapped coordinates
+            _last_result.azimuth_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::AZIMUTH)];
+            _last_result.altitude_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ALTITUDE)];
+            _last_result.zenith_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ZENITH)];
+            
+            if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
                 console->printOutput("MotionEstimator Fusion:\n");
                 console->printOutput("  Input (MotionDI): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                                   euler_angles[0], euler_angles[1], euler_angles[2]);
+                                mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2]);
                 console->printOutput("  Output (Fused): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                                   out_angles[0], out_angles[1], out_angles[2]);
+                                fused_euler_angles[0], fused_euler_angles[1], fused_euler_angles[2]);
+                console->printOutput("  Horizontal Coords: Azimuth=%f deg, Altitude=%f deg, Zenith=%f deg\n",
+                                horizontal_coords[0], horizontal_coords[1], horizontal_coords[2]);
                 console->printOutput("  Trust Vector: [%f, %f, %f]\n",
-                                   trust_vector[0], trust_vector[1], trust_vector[2]);
+                                trust_vector[0], trust_vector[1], trust_vector[2]);
             }
-            
-            _last_result.altitude_angle_degrees = out_angles[1];
-            _last_result.azimuth_angle_degrees = out_angles[0];
-            _last_result.zenith_angle_degrees = out_angles[2];
-
 }
-
+// TODO: do we go back to monitoring after we clear an event/threshold exceeded? If we exceed threshold but then go back, what happens? We should go back to monitoring, but we see that we stay in validation?
 void MotionDetection::_updateValidationState()
 {
     bool altitude_exceeded = fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold;
@@ -511,43 +535,6 @@ void MotionDetection::_updateValidationState()
     }
 }
 
-bool MotionDetection::_checkMotionThresholds()
-{
-    bool altitude_exceeded = fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold;
-    bool azimuth_exceeded = fabsf(_last_result.azimuth_angle_degrees) > _azimuth_threshold;
-
-    // Clear events if below hysteresis threshold
-    if (_altitude_event_active &&
-        fabsf(_last_result.altitude_angle_degrees) < (_altitude_threshold * HYSTERESIS_FACTOR)) {
-        _altitude_event_active = false;
-        hw->clearAlarm(SENSOR_ALARM_ALTITUDE);
-        if (PRINT_EVENTS) {
-            _printEventData(_timing.getCurrentTimeStampUs(), "ALTITUDE_CLEARED");
-        }
-    }
-
-    if (_azimuth_event_active &&
-        fabsf(_last_result.azimuth_angle_degrees) < (_azimuth_threshold * HYSTERESIS_FACTOR)) {
-        _azimuth_event_active = false;
-        hw->clearAlarm(SENSOR_ALARM_AZIMUTH);
-        if (PRINT_EVENTS) {
-            _printEventData(_timing.getCurrentTimeStampUs(), "AZIMUTH_CLEARED");
-        }
-    }
-
-    if (_combined_event_active && !_altitude_event_active && !_azimuth_event_active) {
-        _combined_event_active = false;
-        hw->clearAlarm(SENSOR_ALARM_ALTITUDE);
-        hw->clearAlarm(SENSOR_ALARM_AZIMUTH);
-        if (PRINT_EVENTS) {
-            _printEventData(_timing.getCurrentTimeStampUs(), "COMBINED_CLEARED");
-        }
-    }
-
-    _last_result.is_event_active = _altitude_event_active || _azimuth_event_active;
-
-    return (altitude_exceeded || azimuth_exceeded) && !_last_result.is_event_active;
-}
 
 bool MotionDetection::calibrate()
 {
@@ -598,19 +585,6 @@ bool MotionDetection::_storeReferenceQuaternion()
 
     _printReferenceQuaternion(_timing.getCurrentTimeStampUs());
     _printCalibrationComplete(_timing.getCurrentTimeStampUs());
-
-    float distance_ = 0;
-    Quaternion prev_quat = _quat_list[0];
-    Quaternion current_quat;
-    for (size_t i = 1; i < CALIBRATION_SAMPLES; i++)
-    {
-        current_quat = _quat_list[i];
-        distance_ += QuaternionMath::distance(prev_quat, current_quat);
-        prev_quat = current_quat;
-    }
-    _mean_quat_dist = distance_ / (CALIBRATION_SAMPLES-1);
-    
-
     return true;
 }
 
@@ -877,43 +851,151 @@ void MotionDetection::_applyModeConfiguration()
         PRINT_QUAT = PRINT_EVENTS = PRINT_BIAS = true;
     }
 }
-
 bool MotionDetection::_checkMotionThresholdsWithMode()
 {
-    ModeConfig config = _getModeConfig(_operation_mode);
-    
-    bool altitude_exceeded = false;
-    bool azimuth_exceeded = false;
+    const ModeConfig config = _getModeConfig(_operation_mode);
 
-    // TODO - make sure we integrate the logic and angles from motion_estimator.
-
-    // If both thresholds are non-positive then thresholds are effectively disabled
     if (_altitude_threshold <= 0.0f && _azimuth_threshold <= 0.0f) {
         return false;
     }
-    
-    if(config.enable_altitude_drift) {
-        if (_altitude_threshold > 0.0f) {
-            altitude_exceeded = fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold;
+
+    // Clear ACTIVE events once the signal drops below the hysteresis thresholds.
+    const float altitude_hyst = _altitude_threshold * HYSTERESIS_FACTOR;
+    const float azimuth_hyst  = _azimuth_threshold  * HYSTERESIS_FACTOR;
+
+    if (_altitude_event_active &&
+        fabsf(_last_result.altitude_angle_degrees) < altitude_hyst)
+    {
+        _altitude_event_active = false;
+        hw->clearAlarm(SENSOR_ALARM_ALTITUDE);
+        if (PRINT_EVENTS) {
+            _printEventData(_timing.getCurrentTimeStampUs(), "ALTITUDE_CLEARED");
         }
-    } else {
-        float altitude_rate = fabsf(_last_result.altitude_angle_degrees - _prev_altitude) * SAMPLE_RATE_HZ;
-        altitude_exceeded = (altitude_rate > 1.0f) && (_altitude_threshold > 0.0f) && (fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold);
     }
-    
-    if(config.enable_azimuth_drift) {
-        if (_azimuth_threshold > 0.0f) {
-            azimuth_exceeded = fabsf(_last_result.azimuth_angle_degrees) > _azimuth_threshold;
+
+    if (_azimuth_event_active &&
+        fabsf(_last_result.azimuth_angle_degrees) < azimuth_hyst)
+    {
+        _azimuth_event_active = false;
+        hw->clearAlarm(SENSOR_ALARM_AZIMUTH);
+        if (PRINT_EVENTS) {
+            _printEventData(_timing.getCurrentTimeStampUs(), "AZIMUTH_CLEARED");
         }
-    } else {
-        float azimuth_rate = fabsf(_last_result.azimuth_angle_degrees - _prev_azimuth) * SAMPLE_RATE_HZ;
-        azimuth_exceeded = (azimuth_rate > 1.0f) && (_azimuth_threshold > 0.0f) && (fabsf(_last_result.azimuth_angle_degrees) > _azimuth_threshold);
     }
-    
+
+    if (_combined_event_active &&       //thought both were active
+        !_altitude_event_active &&       // but now none of them are
+        !_azimuth_event_active)
+    {
+        _combined_event_active = false;
+        hw->clearAlarm(SENSOR_ALARM_ALTITUDE);
+        hw->clearAlarm(SENSOR_ALARM_AZIMUTH);
+        if (PRINT_EVENTS) {
+            _printEventData(_timing.getCurrentTimeStampUs(), "COMBINED_CLEARED");
+        }
+    }
+
+     // Evaluate if sample EXCEEDS the real thresholds.
+    bool altitude_over_threshold =
+            (_altitude_threshold > 0.0f) &&
+            (fabsf(_last_result.altitude_angle_degrees) > _altitude_threshold);
+
+    bool azimuth_over_threshold  =
+            (_azimuth_threshold  > 0.0f) &&
+            (fabsf(_last_result.azimuth_angle_degrees)  > _azimuth_threshold);
+
+    // Optional rate gating depending on mode configuration.
+    bool altitude_rate_ok = true;
+    bool azimuth_rate_ok  = true;
+
+    if (!config.enable_altitude_drift) {
+        const float altitude_rate =
+            fabsf(_last_result.altitude_angle_degrees - _prev_altitude) *
+            SAMPLE_RATE_HZ;                                  // deg/s
+        altitude_rate_ok = altitude_rate > config.altitude_drift_threshold_degree_per_second;  // 1 deg/s default
+    }
+
+    if (!config.enable_azimuth_drift) {
+        const float azimuth_rate =
+            fabsf(_last_result.azimuth_angle_degrees - _prev_azimuth) *
+            SAMPLE_RATE_HZ;
+        azimuth_rate_ok  = azimuth_rate > config.azimuth_drift_threshold_degree_per_second;    // 5 deg/s default
+    }
+
+    const bool altitude_exceeded = altitude_over_threshold && altitude_rate_ok;
+    const bool azimuth_exceeded  = azimuth_over_threshold  && azimuth_rate_ok;
+
+    // Book-keeping for next call
     _prev_altitude = _last_result.altitude_angle_degrees;
-    _prev_azimuth = _last_result.azimuth_angle_degrees;
-    
+    _prev_azimuth  = _last_result.azimuth_angle_degrees;
+
+    _last_result.is_event_active = _altitude_event_active || _azimuth_event_active;
+
+    // Return “true” only if a **new** event should be raised.
+
     return (altitude_exceeded || azimuth_exceeded) && !_last_result.is_event_active;
+}
+
+// RESETTING
+void MotionDetection::_checkAndApplyPeriodicReset()
+{
+    // Check if it's time for a periodic reset
+    uint64_t samples_since_reset = _timing.total_samples_processed - _last_estimator_reset_sample;
+    
+    if (samples_since_reset >= DRIFT_RESET_INTERVAL_SAMPLES) {
+        // Only reset if we're in a "safe" state (small angles, no active events)
+        float max_current_angle = fmaxf(
+            fabsf(_last_result.azimuth_angle_degrees),
+            fmaxf(fabsf(_last_result.altitude_angle_degrees), 
+                  fabsf(_last_result.zenith_angle_degrees))
+        );
+        
+        bool safe_to_reset = (max_current_angle < MAX_ANGLE_FOR_RESET_DEG) && 
+                            !_last_result.is_event_active &&
+                            (_state == MotionDetectionState::MONITORING);
+        
+        if (safe_to_reset) {
+            console->printOutput("MotionEstimator: Applying periodic drift reset (angles < %f deg)\n", 
+                               MAX_ANGLE_FOR_RESET_DEG);
+            
+            // Reset MotionEstimator but synchronize with current MotionDI state
+            _synchronizedEstimatorReset();
+            _last_estimator_reset_sample = _timing.total_samples_processed;
+        } else {
+            // Defer reset until conditions are safe
+            if (!_estimator_reset_pending) {
+                console->printOutput("MotionEstimator: Drift reset deferred - angles too large or event active\n");
+                _estimator_reset_pending = true;
+            }
+            
+            // Check periodically if conditions improve
+            if (samples_since_reset % (6240) == 0) { // Check every minute
+                console->printOutput("MotionEstimator: Still waiting for safe reset conditions (max_angle=%f deg)\n", 
+                                   max_current_angle);
+            }
+        }
+    }
+}
+
+void MotionDetection::_synchronizedEstimatorReset()
+{
+    if (!_motion_estimator) return;
+    
+    // Get current MotionDI euler angles
+    float current_euler[3];
+    QuaternionMath::toEulerAngles(_current_quat, current_euler[2], current_euler[1], current_euler[0]); // roll, pitch, yaw
+    
+    // Reset MotionEstimator filters but set reference to current MotionDI angles
+    _motion_estimator->resetFilterStates(false); // Don't reset reference
+    
+    // Manually set the reference in MotionEstimator to match current state
+    // This prevents the 0,0,0 reference problem
+    _motion_estimator->setSynchronizedReference(current_euler);
+    
+    _estimator_reset_pending = false;
+    
+    console->printOutput("MotionEstimator: Synchronized reset complete - reference set to [%f, %f, %f] deg\n",
+                        current_euler[0], current_euler[1], current_euler[2]);
 }
 
 // Logging methods implementation

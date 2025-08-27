@@ -12,9 +12,14 @@
 
 #include <cstdint>
 #include <cmath>
+#include "console.h"
 #include <cstring>
 // #include "adb_types.h"
 // #include "sensor_data.h"
+
+
+// Forward declarations
+class Console;
 
 /**
  * @brief Motion Estimator using combined simple and complementary filters
@@ -137,6 +142,18 @@ public:
      */
     bool isReady() const { return _calibration.is_calibrated; }
 
+    /**
+     * @brief Reset all filter states and reference angles
+     * @param reset_reference If true, reset reference angles to zero (for drift correction)
+     */
+    void resetFilterStates(bool reset_reference = true);
+    /**
+     * @brief Set reference angles to specific values for synchronized reset
+     * @param euler_angles Reference angles [yaw, pitch, roll] in degrees
+     */
+    void setSynchronizedReference(const float euler_angles[3]);
+
+
 private:
     // Configuration
     Config _config;
@@ -168,6 +185,12 @@ private:
     float _alpha;
     float _accel_filtered_prev[3];
     float _gyro_filtered_prev[3];
+
+    // Resets
+    static constexpr uint32_t DRIFT_RESET_INTERVAL_SAMPLES = 104 * 60 * 60; // 1 hour at 104Hz
+    static constexpr float MAX_ANGLE_FOR_RESET_DEG = 2.0f; // Only reset if angles are small
+    uint64_t _last_estimator_reset_sample = 0;
+    bool _estimator_reset_pending = false;
     
     void _initPreprocessingFilter();
     void _applyPreprocessingFilter(const float input[3], float output[3], float prev[3]);
