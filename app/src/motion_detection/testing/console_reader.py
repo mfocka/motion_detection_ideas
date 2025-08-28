@@ -142,7 +142,7 @@ class MotionConsole(SerialConsole):
             self.printing_raw = False
             return self.send_command("printraw 0")
         self.printing_raw = True
-        return self.send_command("printraw 1")
+        return self.send_command("printraw 63")
     def set_thresholds(self, altitude: int, azimuth: int):
         res_th = self.send_command(f"alth {altitude} {azimuth}")
         res_ti = self.send_command(f"ttc 240") # 4 hours

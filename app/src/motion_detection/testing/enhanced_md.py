@@ -3,11 +3,11 @@ Enhanced Motion Detection Debug Visualizer
 
 This tool helps debug motion detection issues by visualizing:
 1. Raw sensor data (accelerometer and gyroscope)
-2. ANGLES - Final output angles (altitude, azimuth, zenith)
-3. ANGLES_DI - MotionDI euler angles (pitch, yaw, roll)
-4. ANGLES_SI - Simple Integration filter angles (pitch, yaw, roll)
-5. ANGLES_CO - Complementary filter angles (pitch, yaw, roll)
-6. ANGLES_FU - Fused angles from MDI + MotionEstimator (pitch, yaw, roll)
+2. ANGLES_DI - MotionDI euler angles (pitch, yaw, roll)
+3. ANGLES_SI - Simple Integration filter angles (pitch, yaw, roll)
+4. ANGLES_CO - Complementary filter angles (pitch, yaw, roll)
+5. ANGLES_FU - Fused angles from MDI + MotionEstimator (pitch, yaw, roll)
+6. ANGLES - Final output angles (altitude, azimuth, zenith)
 7. Gyro bias over time
 
 Supports both file-based and live data visualization.
@@ -88,11 +88,11 @@ class EnhancedMotionDataParser:
                     continue
         
         print(f"Parsed {len(self.raw_data)} raw data samples")
-        print(f"Parsed {len(self.angles)} ANGLES samples")
         print(f"Parsed {len(self.angles_di)} ANGLES_DI samples")
         print(f"Parsed {len(self.angles_si)} ANGLES_SI samples")
         print(f"Parsed {len(self.angles_co)} ANGLES_CO samples")
         print(f"Parsed {len(self.angles_fu)} ANGLES_FU samples")
+        print(f"Parsed {len(self.angles)} ANGLES samples")
         print(f"Parsed {len(self.gyro_bias)} gyro bias samples")
     
     def parse_live_data(self, line):
@@ -118,9 +118,6 @@ class EnhancedMotionDataParser:
         if timestamp_match:
             timestamp = float(timestamp_match.group(1))
             line = timestamp_match.group(2)
-        
-        # Debug print to see what we're parsing
-        # print(f"Parsing line: {line}")
         
         # Parse different data types based on the format from the C++ code
         if line.startswith('RAW_DATA,'):
@@ -275,25 +272,25 @@ class EnhancedMotionVisualizer:
         ax2 = self.fig.add_subplot(gs[0, 1])
         self._plot_raw_gyroscope(ax2)
         
-        # Plot 3: Final ANGLES output
+        # Plot 3: MotionDI angles (ANGLES_DI)
         ax3 = self.fig.add_subplot(gs[0, 2])
-        self._plot_angles_output(ax3)
+        self._plot_angles_di(ax3)
         
-        # Plot 4: MotionDI angles (ANGLES_DI)
+        # Plot 4: Simple Integration filter (ANGLES_SI)
         ax4 = self.fig.add_subplot(gs[1, 0])
-        self._plot_angles_di(ax4)
+        self._plot_angles_si(ax4)
         
-        # Plot 5: Simple Integration filter (ANGLES_SI)
+        # Plot 5: Complementary filter (ANGLES_CO)
         ax5 = self.fig.add_subplot(gs[1, 1])
-        self._plot_angles_si(ax5)
+        self._plot_angles_co(ax5)
         
-        # Plot 6: Complementary filter (ANGLES_CO)
+        # Plot 6: Fused angles (ANGLES_FU)
         ax6 = self.fig.add_subplot(gs[1, 2])
-        self._plot_angles_co(ax6)
+        self._plot_angles_fu(ax6)
         
-        # Plot 7: Fused angles (ANGLES_FU)
+        # Plot 7: Final ANGLES output
         ax7 = self.fig.add_subplot(gs[2, 0])
-        self._plot_angles_fu(ax7)
+        self._plot_angles_output(ax7)
         
         # Plot 8: Gyro bias over time
         ax8 = self.fig.add_subplot(gs[2, 1])
@@ -326,9 +323,9 @@ class EnhancedMotionVisualizer:
         self.axes = {
             'raw_accel': self.fig.add_subplot(gs[0, 0]),
             'raw_gyro': self.fig.add_subplot(gs[0, 1]),
-            'angles_final': self.fig.add_subplot(gs[0, 2]),
-            'angles_di': self.fig.add_subplot(gs[1, 0]),
-            'angles_filters': self.fig.add_subplot(gs[1, 1]),
+            'angles_di': self.fig.add_subplot(gs[0, 2]),
+            'angles_si': self.fig.add_subplot(gs[1, 0]),
+            'angles_co': self.fig.add_subplot(gs[1, 1]),
             'angles_fused': self.fig.add_subplot(gs[1, 2]),
             'gyro_bias': self.fig.add_subplot(gs[2, 0]),
             'comparison': self.fig.add_subplot(gs[2, 1:])
@@ -348,9 +345,9 @@ class EnhancedMotionVisualizer:
         # Set titles
         self.axes['raw_accel'].set_title('Raw Accelerometer (mg)')
         self.axes['raw_gyro'].set_title('Raw Gyroscope (dps)')
-        self.axes['angles_final'].set_title('ANGLES - Final Output')
         self.axes['angles_di'].set_title('ANGLES_DI - MotionDI Euler')
-        self.axes['angles_filters'].set_title('ANGLES_SI/CO - Filters')
+        self.axes['angles_si'].set_title('ANGLES_SI - Simple Integration')
+        self.axes['angles_co'].set_title('ANGLES_CO - Complementary')
         self.axes['angles_fused'].set_title('ANGLES_FU - Fused')
         self.axes['gyro_bias'].set_title('Gyro Bias (dps)')
         self.axes['comparison'].set_title('Angle Comparison - All Sources')
@@ -368,9 +365,9 @@ class EnhancedMotionVisualizer:
         # Update each plot
         self._plot_raw_accelerometer(self.axes['raw_accel'])
         self._plot_raw_gyroscope(self.axes['raw_gyro'])
-        self._plot_angles_output(self.axes['angles_final'])
         self._plot_angles_di(self.axes['angles_di'])
-        self._plot_angles_filters_combined(self.axes['angles_filters'])
+        self._plot_angles_si(self.axes['angles_si'])
+        self._plot_angles_co(self.axes['angles_co'])
         self._plot_angles_fu(self.axes['angles_fused'])
         self._plot_gyro_bias(self.axes['gyro_bias'])
         self._plot_live_comparison(self.axes['comparison'])
@@ -378,9 +375,9 @@ class EnhancedMotionVisualizer:
         # Re-set titles
         self.axes['raw_accel'].set_title('Raw Accelerometer (mg)')
         self.axes['raw_gyro'].set_title('Raw Gyroscope (dps)')
-        self.axes['angles_final'].set_title('ANGLES - Final Output')
         self.axes['angles_di'].set_title('ANGLES_DI - MotionDI Euler')
-        self.axes['angles_filters'].set_title('ANGLES_SI/CO - Filters')
+        self.axes['angles_si'].set_title('ANGLES_SI - Simple Integration')
+        self.axes['angles_co'].set_title('ANGLES_CO - Complementary')
         self.axes['angles_fused'].set_title('ANGLES_FU - Fused')
         self.axes['gyro_bias'].set_title('Gyro Bias (dps)')
         self.axes['comparison'].set_title('Angle Comparison - All Sources')
@@ -569,6 +566,20 @@ class EnhancedMotionVisualizer:
         ax.set_ylabel('Angle (degrees)')
         ax.legend()
         
+    def _plot_live_comparison(self, ax):
+        """Plot live comparison of all angle sources"""
+        # For live mode, show a simplified comparison
+        if self.parser.angles:
+            timestamps = [d['timestamp'] for d in self.parser.angles]
+            altitudes = [d['altitude'] for d in self.parser.angles]
+            azimuths = [d['azimuth'] for d in self.parser.angles]
+            
+            ax.plot(timestamps, altitudes, 'r-', label='Altitude', alpha=0.8)
+            ax.plot(timestamps, azimuths, 'g-', label='Azimuth', alpha=0.8)
+            ax.set_xlabel('Time (s)')
+            ax.set_ylabel('Angle (degrees)')
+            ax.legend()
+        
     def _plot_analysis_summary(self, ax):
         """Plot analysis summary with statistics and insights"""
         # Create a text-based summary plot
@@ -612,18 +623,77 @@ class EnhancedMotionVisualizer:
             lines.append("Final ANGLES Statistics:")
             alt_stats = self._calculate_angle_stats([d['altitude'] for d in self.parser.angles])
             az_stats = self._calculate_angle_stats([d['azimuth'] for d in self.parser.angles])
-
+            zenith_stats = self._calculate_angle_stats([d['zenith'] for d in self.parser.angles])
+            
+            lines.append(f"  Altitude: Mean={alt_stats['mean']:.2f}°, Range={alt_stats['range']:.2f}°")
+            lines.append(f"  Azimuth:  Mean={az_stats['mean']:.2f}°, Range={az_stats['range']:.2f}°")
+            lines.append(f"  Zenith:   Mean={zenith_stats['mean']:.2f}°, Range={zenith_stats['range']:.2f}°")
+            lines.append("")
+        
+        # MotionDI statistics
+        if self.parser.angles_di:
+            lines.append("MotionDI (ANGLES_DI) Statistics:")
+            pitch_stats = self._calculate_angle_stats([d['pitch'] for d in self.parser.angles_di])
+            yaw_stats = self._calculate_angle_stats([d['yaw'] for d in self.parser.angles_di])
+            roll_stats = self._calculate_angle_stats([d['roll'] for d in self.parser.angles_di])
+            
+            lines.append(f"  Pitch: Mean={pitch_stats['mean']:.2f}°, Range={pitch_stats['range']:.2f}°")
+            lines.append(f"  Yaw:   Mean={yaw_stats['mean']:.2f}°, Range={yaw_stats['range']:.2f}°")
+            lines.append(f"  Roll:  Mean={roll_stats['mean']:.2f}°, Range={roll_stats['range']:.2f}°")
+            lines.append("")
+        
+        # Filter comparison
+        if self.parser.angles_si and self.parser.angles_co:
+            lines.append("Filter Comparison:")
+            lines.append(f"  Simple Integration: {len(self.parser.angles_si)} samples")
+            lines.append(f"  Complementary:      {len(self.parser.angles_co)} samples")
+            lines.append("")
+        
+        # Gyro bias analysis
+        if self.parser.gyro_bias:
+            lines.append("Gyro Bias Analysis:")
+            bias_x_stats = self._calculate_angle_stats([d['bias_x'] for d in self.parser.gyro_bias])
+            bias_y_stats = self._calculate_angle_stats([d['bias_y'] for d in self.parser.gyro_bias])
+            bias_z_stats = self._calculate_angle_stats([d['bias_z'] for d in self.parser.gyro_bias])
+            
+            lines.append(f"  X-axis: Mean={bias_x_stats['mean']:.3f} dps, Range={bias_x_stats['range']:.3f} dps")
+            lines.append(f"  Y-axis: Mean={bias_y_stats['mean']:.3f} dps, Range={bias_y_stats['range']:.3f} dps")
+            lines.append(f"  Z-axis: Mean={bias_z_stats['mean']:.3f} dps, Range={bias_z_stats['range']:.3f} dps")
+        
+        return "\n".join(lines)
+        
     def _calculate_angle_stats(self, values):
-        import numpy as np
+        """Calculate basic statistics for angle values"""
         if not values:
             return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'range': 0.0}
-        arr = np.array(values)
-        return {
-            'mean': np.mean(arr),
-            'min': np.min(arr),
-            'max': np.max(arr),
-            'range': np.max(arr) - np.min(arr)
-        }
+        
+        try:
+            import numpy as np
+            arr = np.array(values)
+            return {
+                'mean': float(np.mean(arr)),
+                'min': float(np.min(arr)),
+                'max': float(np.max(arr)),
+                'range': float(np.max(arr) - np.min(arr))
+            }
+        except ImportError:
+            # Fallback if numpy is not available
+            if not values:
+                return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'range': 0.0}
+            min_val = min(values)
+            max_val = max(values)
+            mean_val = sum(values) / len(values)
+            return {
+                'mean': mean_val,
+                'min': min_val,
+                'max': max_val,
+                'range': max_val - min_val
+            }
+    
+    def _create_text_analysis(self):
+        """Create text-based analysis when matplotlib is not available"""
+        print("=== TEXT-BASED MOTION DETECTION ANALYSIS ===")
+        print(self._generate_statistics_text())
 
 if __name__ == "__main__":
     import argparse
@@ -642,7 +712,8 @@ if __name__ == "__main__":
         data_parser.enable_live_mode()
         console = MotionConsole(rx_callback=data_parser.parse_live_data)
         if console.connect(args.port, args.baudrate):
-            console.enable_raw_output()
+            # console.enable_raw_output()
+            # console.calibrate(alt_threshold=10.0, az_threshold=20.0)
             print("Live mode enabled. Receiving data...")
             visualizer = EnhancedMotionVisualizer(data_parser)
             if visualizer.create_live_visualization():
