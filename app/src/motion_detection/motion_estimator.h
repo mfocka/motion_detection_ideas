@@ -12,8 +12,9 @@
 
 #include <cstdint>
 #include <cmath>
-#include "console.h"
 #include <cstring>
+#include "console.h"
+#include "tools.h"
 // #include "adb_types.h"
 // #include "sensor_data.h"
 
