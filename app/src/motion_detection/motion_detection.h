@@ -17,6 +17,7 @@
 #include "adb_types.h"
 #include "sensor_data.h"
 #include "quaternion.h"
+#include "tools.h"
 
 #define DEBUG_PRINT_RAW_ENABLE_MASK       (0x01)
 #define DEBUG_PRINT_INFO_ENABLE_MASK      (0x02)
@@ -126,9 +127,7 @@ struct MotionSensorData
 
     void toAccelG(float g[3]) const
     {
-        g[0] = accel_mg[0] / 1000.0f;
-        g[1] = accel_mg[1] / 1000.0f;
-        g[2] = accel_mg[2] / 1000.0f;
+        MotionTools::mgToG(accel_mg, g);
     }
 };
 

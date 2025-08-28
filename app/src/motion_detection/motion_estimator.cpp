@@ -8,17 +8,9 @@
  */
 
 #include "motion_estimator.h"
+#include "tools.h"
 #include <cstring>
 #include <cmath>
-
-// Constants
-
-#define M_PI		3.14159265358979323846	/* pi */
-#define M_PI_2		1.57079632679489661923	/* pi/2 */
-static constexpr float DEG_TO_RAD = M_PI / 180.0f;
-static constexpr float RAD_TO_DEG = 180.0f / M_PI;
-static constexpr float G_TO_MS2 = 9.80665f;
-static constexpr float MG_TO_MS2 = G_TO_MS2 / 1000.0f;
 
 // // Simple 2nd order Butterworth low-pass filter implementation
 // class ButterworthFilter {
@@ -375,14 +367,8 @@ float MotionEstimator::_tiltAngleFromAccel(const float accel[3], int axis)
 
 float MotionEstimator::_normalizeAngle(float angle_deg)
 {
-    // Normalize angle to [-180, 180] range
-    while (angle_deg > 180.0f) {
-        angle_deg -= 360.0f;
-    }
-    while (angle_deg < -180.0f) {
-        angle_deg += 360.0f;
-    }
-    return angle_deg;
+    // Use common tools for angle normalization
+    return MotionTools::absoluteAngle(angle_deg);
 }
 void MotionEstimator::resetFilterStates(bool reset_reference) 
 {
