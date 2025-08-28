@@ -375,14 +375,9 @@ float MotionEstimator::_tiltAngleFromAccel(const float accel[3], int axis)
 
 float MotionEstimator::_normalizeAngle(float angle_deg)
 {
-    // Normalize angle to [-180, 180] range
-    while (angle_deg > 180.0f) {
-        angle_deg -= 360.0f;
-    }
-    while (angle_deg < -180.0f) {
-        angle_deg += 360.0f;
-    }
-    return angle_deg;
+    // For motion detection, use absolute values to avoid wrap-around jumps
+    // This prevents -180/+180 discontinuities that cause false motion events
+    return fabsf(angle_deg);
 }
 void MotionEstimator::resetFilterStates(bool reset_reference) 
 {
