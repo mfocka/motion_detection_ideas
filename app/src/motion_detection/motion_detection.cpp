@@ -10,7 +10,6 @@
 
 #include "motion_detection.h"
 #include "motion_estimator.h"
-#include "tools.h"
 #include "console.h"
 #include "globals.h"
 #include "PLCMsg.h"
@@ -226,13 +225,12 @@ bool MotionDetection::processData(MotionSensorData &data, uint64_t sample_timest
 
 void MotionDetection::_convertWDStoENU(const float wds[3], float enu[3])
 {
-    // Use common tools for coordinate conversion
-    MotionTools::convertWDStoENU(wds, enu);
-}
-void MotionDetection::_applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3])
-{
-    // Use common tools for coordinate mapping
-    MotionTools::eulerToHorizontal(euler_angles, horizontal_coords);
+    // Transformation matrix WDS -> ENU
+    // WDS: X-West, Y-Down, Z-South
+    // ENU: X-East, Y-North, Z-Up
+    enu[0] = -wds[0];  // East = -West
+    enu[1] = -wds[2];  // North = -South  
+    enu[2] = -wds[1];  // Up = -Down
 }
 
 void MotionDetection::_updateMotionDI(const MotionSensorData &data)
@@ -247,12 +245,9 @@ void MotionDetection::_updateMotionDI(const MotionSensorData &data)
     _convertWDStoENU(data.accel_mg, accel_enu);
     _convertWDStoENU(data.gyro_dps, gyro_enu);
     
-    // Convert mg to g using tools
-    float accel_g[3];
-    MotionTools::mgToG(accel_enu, accel_g);
-    mdi_input.Acc[0] = accel_g[0];
-    mdi_input.Acc[1] = accel_g[1];
-    mdi_input.Acc[2] = accel_g[2];
+    mdi_input.Acc[0] = accel_enu[0] / 1000.0f;
+    mdi_input.Acc[1] = accel_enu[1] / 1000.0f;
+    mdi_input.Acc[2] = accel_enu[2] / 1000.0f;
     
     mdi_input.Gyro[0] = gyro_enu[0];
     mdi_input.Gyro[1] = gyro_enu[1];
@@ -446,7 +441,7 @@ void MotionDetection::_updateAngles(){
             
             // TODO: Improve set-up of all this for updateCompleteEulerAngles
             float mdi_yaw, mdi_roll, mdi_pitch = 0;
-            eulerToHorizontal(_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees, mdi_yaw, mdi_pitch, mdi_roll);
+            horizontalToEuler(_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees, mdi_yaw, mdi_pitch, mdi_roll);
             float mdi_euler_angles[3] = {mdi_yaw, mdi_pitch, mdi_roll};
             // Apply MotionEstimator fusion and cross-checking
             float trust_vector[3] = {0.3f, 0.9f, 0.5f}; // Low trust in yaw, high trust in pitch, medium trust in roll
@@ -456,7 +451,7 @@ void MotionDetection::_updateAngles(){
             _motion_estimator->updateCompleteEulerAngles(mdi_euler_angles, trust_vector, fused_euler_angles);
 
             float horizontal_coords[3];
-            horizontalToEuler(mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2], _last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees);
+            eulerToHorizontal(mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2], _last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees);
             
             if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
                 console->printOutput("MotionEstimator Fusion:\n");
@@ -820,7 +815,7 @@ void MotionDetection::_calculateAnglesToReference(const Quaternion &current, con
     if (roll > 90.0f) roll = 90.0f;
 
     // Use enum mapping directly for consistent coordinate assignment
-    horizontalToEuler(yaw, pitch, roll, azimuth, altitude, zenith);
+    eulerToHorizontal(yaw, pitch, roll, azimuth, altitude, zenith);
 
     // update sensor data    
     altitude_s.asUINT16 = static_cast<uint16_t>(altitude * 10.0f);
@@ -971,10 +966,14 @@ void MotionDetection::_synchronizedEstimatorReset()
     
     // Get current MotionDI euler angles
     float current_euler[3];
-    QuaternionMath::toEulerAngles(_current_quat, current_euler[2], current_euler[1], current_euler[0]); // roll, pitch, yaw
+
+    Quaternion orientation_quat = QuaternionMath::relativeRotation(_current_quat, _reference_quat);
+
+    QuaternionMath::toEulerAngles(orientation_quat, current_euler[2], current_euler[1], current_euler[0]); // roll, pitch, yaw
+
     
     // Reset MotionEstimator filters but set reference to current MotionDI angles
-    _motion_estimator->resetFilterStates(false); // Don't reset reference
+    _motion_estimator->resetFilterStates(true); // Don't reset reference
     
     // Manually set the reference in MotionEstimator to match current state
     // This prevents the 0,0,0 reference problem

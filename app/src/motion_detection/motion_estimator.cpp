@@ -8,9 +8,17 @@
  */
 
 #include "motion_estimator.h"
-#include "tools.h"
 #include <cstring>
 #include <cmath>
+
+// Constants
+
+#define M_PI		3.14159265358979323846	/* pi */
+#define M_PI_2		1.57079632679489661923	/* pi/2 */
+static constexpr float DEG_TO_RAD = M_PI / 180.0f;
+static constexpr float RAD_TO_DEG = 180.0f / M_PI;
+static constexpr float G_TO_MS2 = 9.80665f;
+static constexpr float MG_TO_MS2 = G_TO_MS2 / 1000.0f;
 
 // // Simple 2nd order Butterworth low-pass filter implementation
 // class ButterworthFilter {
@@ -228,7 +236,7 @@ void MotionEstimator::resetCalibration()
     std::memset(&_calibration, 0, sizeof(_calibration));
     _calibration.is_calibrated = false;
     _calibration.sample_count = 0;
-    resetFilterStates();
+    resetFilterStates(true);
 }
 void MotionEstimator::_initPreprocessingFilter() {
     // Calculate alpha based on your desired cutoff frequency
@@ -266,7 +274,7 @@ void MotionEstimator::_updateSimpleFilter(const float gyro[3])
     // Roll: integrate around X-axis (gyro[0])
     _simple_roll_deg = _prev_roll_deg + gyro[0] * _dt;
     
-    // Normalize angles to [-180, 180] range
+    // Normalize angles to [0, 180] range
     _simple_yaw_deg = _normalizeAngle(_simple_yaw_deg);
     _simple_pitch_deg = _normalizeAngle(_simple_pitch_deg);
     _simple_roll_deg = _normalizeAngle(_simple_roll_deg);
@@ -288,7 +296,7 @@ void MotionEstimator::_updateComplementaryFilter(const float accel[3], const flo
     _comp_roll_deg = _config.alpha * gyro_roll_deg + (1.0f - _config.alpha) * acc_roll_deg;
     _comp_yaw_deg = gyro_yaw_deg; // Yaw only from gyro (no accelerometer reference)
     
-    // Normalize angles
+    // Normalize angles to [0,180]
     _comp_yaw_deg = _normalizeAngle(_comp_yaw_deg);
     _comp_pitch_deg = _normalizeAngle(_comp_pitch_deg);
     _comp_roll_deg = _normalizeAngle(_comp_roll_deg);
@@ -310,14 +318,14 @@ void MotionEstimator::_combineFilters(Output& output)
         output.yaw_deg = _simple_yaw_deg;
     } else {
         // If complementary filter shows large change, use weighted average
-        output.yaw_deg = 0.7f * _simple_yaw_deg + 0.3f * _comp_yaw_deg;
+        output.yaw_deg = 0.6f * _simple_yaw_deg + 0.4f * _comp_yaw_deg;
     }
     
     // Pitch and Roll: Use complementary filter as primary (less drift)
     output.pitch_deg = _comp_pitch_deg;
     output.roll_deg = _comp_roll_deg;
     
-    // Normalize final angles
+    // Normalize final angles to [0,180]
     output.yaw_deg = _normalizeAngle(output.yaw_deg);
     output.pitch_deg = _normalizeAngle(output.pitch_deg);
     output.roll_deg = _normalizeAngle(output.roll_deg);
@@ -368,8 +376,14 @@ float MotionEstimator::_tiltAngleFromAccel(const float accel[3], int axis)
 
 float MotionEstimator::_normalizeAngle(float angle_deg)
 {
-    // Use common tools for angle normalization
-    return MotionTools::absoluteAngle(angle_deg);
+    // Normalize angle to [0, 180] range
+    while (angle_deg > 180.0f) {
+        angle_deg -= 360.0f;
+    }
+    while (angle_deg < -180.0f) {
+        angle_deg += 360.0f;
+    }
+    return fabsf(angle_deg);
 }
 void MotionEstimator::resetFilterStates(bool reset_reference) 
 {
