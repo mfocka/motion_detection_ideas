@@ -14,14 +14,14 @@ Supports both file-based and live data visualization.
 
 Usage:
     # File-based analysis
-    python3 enhanced_motion_visualizer.py <log_file>
+    python3 enhanced_md.py <log_file>
     
     # Live data visualization
-    python3 enhanced_motion_visualizer.py --live --port /dev/ttyUSB0
+    python3 enhanced_md.py --live --port /dev/ttyUSB0
     
 Examples:
-    python3 enhanced_motion_visualizer.py motion_detection.log
-    python3 enhanced_motion_visualizer.py --live --port COM15 --baudrate 115200
+    python3 enhanced_md.py motion_detection.log
+    python3 enhanced_md.py --live --port COM15 --baudrate 115200
 """
 
 import sys
@@ -34,88 +34,18 @@ import time
 from collections import deque
 import os
 
-# Try to import required packages
+# Check for matplotlib availability
+MATPLOTLIB_AVAILABLE = True
 try:
     import numpy as np
-    NUMPY_AVAILABLE = True
-except ImportError:
-    NUMPY_AVAILABLE = False
-    print("Warning: numpy not available. Some statistical features will be limited.")
-    print("To install numpy: pip3 install numpy")
-    print("Or on Ubuntu/Debian: sudo apt install python3-numpy")
-    
-    # Fallback implementations for basic statistical functions
-    def fallback_min(data):
-        return min(data) if data else 0
-    
-    def fallback_max(data):
-        return max(data) if data else 0
-    
-    def fallback_mean(data):
-        return sum(data) / len(data) if data else 0
-    
-    def fallback_std(data):
-        if not data:
-            return 0
-        mean_val = fallback_mean(data)
-        variance = sum((x - mean_val) ** 2 for x in data) / len(data)
-        return variance ** 0.5
-    
-    # Create numpy-like namespace with fallback functions
-    class NumpyFallback:
-        def __init__(self):
-            self.min = fallback_min
-            self.max = fallback_max
-            self.mean = fallback_mean
-            self.std = fallback_std
-        
-        def array(self, data):
-            # Simple fallback for np.array - just return the data as-is
-            return data
-    
-    np = NumpyFallback()
-
-try:
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
     from matplotlib.animation import FuncAnimation
-    MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
-    print("Warning: matplotlib not available. Visualization will be disabled.")
-    print("To install matplotlib: pip3 install matplotlib")
-    print("Or on Ubuntu/Debian: sudo apt install python3-matplotlib")
+    print("Warning: matplotlib not available. Text-only mode will be used.")
 
-# Try to import console_reader for live mode
-try:
-    from console_reader import MotionConsole
-    LIVE_MODE_AVAILABLE = True
-except ImportError:
-    LIVE_MODE_AVAILABLE = False
-    print("Warning: console_reader not available. Live mode will be disabled.")
-    print("Make sure console_reader.py is in the same directory.")
-
-# Check if we have the minimum required packages
-if not MATPLOTLIB_AVAILABLE:
-    print("\n" + "="*60)
-    print("DEPENDENCY ISSUE DETECTED")
-    print("="*60)
-    print("The Enhanced Motion Detection Debug Visualizer requires:")
-    print("  - matplotlib: for data visualization")
-    print("\nTo fix this, you have several options:")
-    print("\n1. Install packages system-wide (requires sudo):")
-    print("   sudo apt update")
-    print("   sudo apt install python3-matplotlib")
-    print("\n2. Create a virtual environment:")
-    print("   sudo apt install python3-venv")
-    print("   python3 -m venv venv")
-    print("   source venv/bin/activate")
-    print("   pip install matplotlib")
-    print("\n3. Use pipx (if available):")
-    print("   sudo apt install pipx")
-    print("   pipx install matplotlib")
-    print("\n4. Continue without visualization (limited functionality)")
-    print("="*60 + "\n")
+from console_reader import MotionConsole
 
 class EnhancedMotionDataParser:
     def __init__(self, max_live_samples=2000):
@@ -179,166 +109,141 @@ class EnhancedMotionDataParser:
         if not line:
             return
             
-        # Extract timestamp if present, otherwise use provided value
-        timestamp_match = re.search(r'timestamp=([\d.]+)', line)
-        timestamp = float(timestamp_match.group(1)) if timestamp_match else timestamp_or_line_num
+        # Handle timestamp-prefixed lines like "[48890.700s] RAW_DATA,..."
+        original_line = line
+        timestamp = timestamp_or_line_num
         
-        # Parse different data types
-        if 'RAW_DATA:' in line:
-            self._parse_raw_data(line, timestamp)
-        elif 'ANGLES:' in line:
-            self._parse_angles(line, timestamp)
-        elif 'ANGLES_DI:' in line:
-            self._parse_angles_di(line, timestamp)
-        elif 'ANGLES_SI:' in line:
-            self._parse_angles_si(line, timestamp)
-        elif 'ANGLES_CO:' in line:
-            self._parse_angles_co(line, timestamp)
-        elif 'ANGLES_FU:' in line:
-            self._parse_angles_fu(line, timestamp)
-        elif 'GYRO_BIAS:' in line:
-            self._parse_gyro_bias(line, timestamp)
+        # Extract timestamp if present in format [xxxx.xxxs]
+        timestamp_match = re.match(r'^\[(\d+\.\d+)s\]\s*(.*)$', line)
+        if timestamp_match:
+            timestamp = float(timestamp_match.group(1))
+            line = timestamp_match.group(2)
+        
+        # Debug print to see what we're parsing
+        # print(f"Parsing line: {line}")
+        
+        # Parse different data types based on the format from the C++ code
+        if line.startswith('RAW_DATA,'):
+            self._parse_raw_data_csv(line, timestamp)
+        elif line.startswith('ANGLES,'):
+            self._parse_angles_csv(line, timestamp)
+        elif line.startswith('ANGLES_DI,'):
+            self._parse_angles_di_csv(line, timestamp)
+        elif line.startswith('ANGLES_SI,'):
+            self._parse_angles_si_csv(line, timestamp)
+        elif line.startswith('ANGLES_CO,'):
+            self._parse_angles_co_csv(line, timestamp)
+        elif line.startswith('ANGLES_FU,'):
+            self._parse_angles_fu_csv(line, timestamp)
+        elif line.startswith('GYRO_BIAS_MDI,'):
+            self._parse_gyro_bias_csv(line, timestamp)
     
-    def _parse_raw_data(self, line, timestamp):
-        """Parse RAW_DATA line with accel_mg and gyro_dps values"""
+    def _parse_raw_data_csv(self, line, timestamp):
+        """Parse RAW_DATA CSV line: RAW_DATA,timestamp_us,ax,ay,az,gx,gy,gz"""
         try:
-            # Extract accel_mg values: accel_mg=[123.45, -67.89, 987.65]
-            accel_match = re.search(r'accel_mg=\[([-\d., ]+)\]', line)
-            if accel_match:
-                accel_str = accel_match.group(1)
-                accel_values = [float(x.strip()) for x in accel_str.split(',')]
-                
-                # Extract gyro_dps values: gyro_dps=[0.12, -0.34, 0.56]
-                gyro_match = re.search(r'gyro_dps=\[([-\d., ]+)\]', line)
-                if gyro_match:
-                    gyro_str = gyro_match.group(1)
-                    gyro_values = [float(x.strip()) for x in gyro_str.split(',')]
-                    
-                    data = {
-                        'timestamp': timestamp,
-                        'accel_mg': accel_values,
-                        'gyro_dps': gyro_values
-                    }
-                    self.raw_data.append(data)
-                    if not self.live_mode:
-                        self.timestamps.append(timestamp)
-        except (ValueError, IndexError) as e:
-            print(f"Error parsing RAW_DATA line: {e}")
-    
-    def _parse_angles(self, line, timestamp):
-        """Parse ANGLES line with altitude, azimuth, zenith values"""
-        try:
-            # Extract values: altitude=15.67 azimuth=45.23 zenith=89.12
-            altitude_match = re.search(r'altitude=([-\d.]+)', line)
-            azimuth_match = re.search(r'azimuth=([-\d.]+)', line)
-            zenith_match = re.search(r'zenith=([-\d.]+)', line)
-            
-            if altitude_match and azimuth_match and zenith_match:
+            parts = line.split(',')
+            if len(parts) >= 8:
                 data = {
                     'timestamp': timestamp,
-                    'altitude': float(altitude_match.group(1)),
-                    'azimuth': float(azimuth_match.group(1)),
-                    'zenith': float(zenith_match.group(1)),
-                    'state': 'UNKNOWN'
+                    'accel_mg': [float(parts[2]), float(parts[3]), float(parts[4])],
+                    'gyro_dps': [float(parts[5]), float(parts[6]), float(parts[7])]
+                }
+                self.raw_data.append(data)
+                if not self.live_mode:
+                    self.timestamps.append(timestamp)
+        except (ValueError, IndexError) as e:
+            print(f"Error parsing RAW_DATA CSV line '{line}': {e}")
+    
+    def _parse_angles_csv(self, line, timestamp):
+        """Parse ANGLES CSV line: ANGLES,timestamp_us,altitude,azimuth,zenith,state"""
+        try:
+            parts = line.split(',')
+            if len(parts) >= 5:
+                data = {
+                    'timestamp': timestamp,
+                    'altitude': float(parts[2]),
+                    'azimuth': float(parts[3]),
+                    'zenith': float(parts[4]),
+                    'state': parts[5] if len(parts) > 5 else 'UNKNOWN'
                 }
                 self.angles.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing ANGLES line: {e}")
+            print(f"Error parsing ANGLES CSV line '{line}': {e}")
     
-    def _parse_angles_di(self, line, timestamp):
-        """Parse ANGLES_DI line with pitch, yaw, roll values"""
+    def _parse_angles_di_csv(self, line, timestamp):
+        """Parse ANGLES_DI CSV line: ANGLES_DI,timestamp_us,pitch,yaw,roll"""
         try:
-            # Extract values: pitch=12.34 yaw=23.45 roll=34.56
-            pitch_match = re.search(r'pitch=([-\d.]+)', line)
-            yaw_match = re.search(r'yaw=([-\d.]+)', line)
-            roll_match = re.search(r'roll=([-\d.]+)', line)
-            
-            if pitch_match and yaw_match and roll_match:
+            parts = line.split(',')
+            if len(parts) >= 5:
                 data = {
                     'timestamp': timestamp,
-                    'pitch': float(pitch_match.group(1)),
-                    'yaw': float(yaw_match.group(1)),
-                    'roll': float(roll_match.group(1))
+                    'pitch': float(parts[2]),
+                    'yaw': float(parts[3]),
+                    'roll': float(parts[4])
                 }
                 self.angles_di.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing ANGLES_DI line: {e}")
+            print(f"Error parsing ANGLES_DI CSV line '{line}': {e}")
     
-    def _parse_angles_si(self, line, timestamp):
-        """Parse ANGLES_SI line with pitch, yaw, roll values"""
+    def _parse_angles_si_csv(self, line, timestamp):
+        """Parse ANGLES_SI CSV line: ANGLES_SI,timestamp_us,pitch,yaw,roll"""
         try:
-            # Extract values: pitch=11.23 yaw=22.34 roll=33.45
-            pitch_match = re.search(r'pitch=([-\d.]+)', line)
-            yaw_match = re.search(r'yaw=([-\d.]+)', line)
-            roll_match = re.search(r'roll=([-\d.]+)', line)
-            
-            if pitch_match and yaw_match and roll_match:
+            parts = line.split(',')
+            if len(parts) >= 5:
                 data = {
                     'timestamp': timestamp,
-                    'pitch': float(pitch_match.group(1)),
-                    'yaw': float(yaw_match.group(1)),
-                    'roll': float(roll_match.group(1))
+                    'pitch': float(parts[2]),
+                    'yaw': float(parts[3]),
+                    'roll': float(parts[4])
                 }
                 self.angles_si.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing ANGLES_SI line: {e}")
+            print(f"Error parsing ANGLES_SI CSV line '{line}': {e}")
     
-    def _parse_angles_co(self, line, timestamp):
-        """Parse ANGLES_CO line with pitch, yaw, roll values"""
+    def _parse_angles_co_csv(self, line, timestamp):
+        """Parse ANGLES_CO CSV line: ANGLES_CO,timestamp_us,pitch,yaw,roll"""
         try:
-            # Extract values: pitch=11.67 yaw=22.78 roll=33.89
-            pitch_match = re.search(r'pitch=([-\d.]+)', line)
-            yaw_match = re.search(r'yaw=([-\d.]+)', line)
-            roll_match = re.search(r'roll=([-\d.]+)', line)
-            
-            if pitch_match and yaw_match and roll_match:
+            parts = line.split(',')
+            if len(parts) >= 5:
                 data = {
                     'timestamp': timestamp,
-                    'pitch': float(pitch_match.group(1)),
-                    'yaw': float(yaw_match.group(1)),
-                    'roll': float(roll_match.group(1))
+                    'pitch': float(parts[2]),
+                    'yaw': float(parts[3]),
+                    'roll': float(parts[4])
                 }
                 self.angles_co.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing ANGLES_CO line: {e}")
+            print(f"Error parsing ANGLES_CO CSV line '{line}': {e}")
     
-    def _parse_angles_fu(self, line, timestamp):
-        """Parse ANGLES_FU line with pitch, yaw, roll values"""
+    def _parse_angles_fu_csv(self, line, timestamp):
+        """Parse ANGLES_FU CSV line: ANGLES_FU,timestamp_us,pitch,yaw,roll"""
         try:
-            # Extract values: pitch=12.12 yaw=23.34 roll=34.56
-            pitch_match = re.search(r'pitch=([-\d.]+)', line)
-            yaw_match = re.search(r'yaw=([-\d.]+)', line)
-            roll_match = re.search(r'roll=([-\d.]+)', line)
-            
-            if pitch_match and yaw_match and roll_match:
+            parts = line.split(',')
+            if len(parts) >= 5:
                 data = {
                     'timestamp': timestamp,
-                    'pitch': float(pitch_match.group(1)),
-                    'yaw': float(yaw_match.group(1)),
-                    'roll': float(roll_match.group(1))
+                    'pitch': float(parts[2]),
+                    'yaw': float(parts[3]),
+                    'roll': float(parts[4])
                 }
                 self.angles_fu.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing ANGLES_FU line: {e}")
+            print(f"Error parsing ANGLES_FU CSV line '{line}': {e}")
     
-    def _parse_gyro_bias(self, line, timestamp):
-        """Parse GYRO_BIAS line with bias_x, bias_y, bias_z values"""
+    def _parse_gyro_bias_csv(self, line, timestamp):
+        """Parse GYRO_BIAS_MDI CSV line: GYRO_BIAS_MDI,timestamp_us,bias_x,bias_y,bias_z"""
         try:
-            # Extract values: bias_x=0.123 bias_y=-0.234 bias_z=0.345
-            bias_x_match = re.search(r'bias_x=([-\d.]+)', line)
-            bias_y_match = re.search(r'bias_y=([-\d.]+)', line)
-            bias_z_match = re.search(r'bias_z=([-\d.]+)', line)
-            
-            if bias_x_match and bias_y_match and bias_z_match:
+            parts = line.split(',')
+            if len(parts) >= 5:
                 data = {
                     'timestamp': timestamp,
-                    'bias_x': float(bias_x_match.group(1)),
-                    'bias_y': float(bias_y_match.group(1)),
-                    'bias_z': float(bias_z_match.group(1))
+                    'bias_x': float(parts[2]),
+                    'bias_y': float(parts[3]),
+                    'bias_z': float(parts[4])
                 }
                 self.gyro_bias.append(data)
         except (ValueError, IndexError) as e:
-            print(f"Error parsing GYRO_BIAS line: {e}")
+            print(f"Error parsing GYRO_BIAS_MDI CSV line '{line}': {e}")
 
 class EnhancedMotionVisualizer:
     def __init__(self, parser):
@@ -354,7 +259,7 @@ class EnhancedMotionVisualizer:
             self._create_text_analysis()
             return
             
-        if not self.parser.raw_data:
+        if not self.parser.raw_data and not self.parser.angles:
             print("No data to visualize!")
             return
             
@@ -407,8 +312,8 @@ class EnhancedMotionVisualizer:
         
     def create_live_visualization(self):
         """Create live visualization that updates with incoming data"""
-        if not LIVE_MODE_AVAILABLE:
-            print("Error: Live mode not available. console_reader module not found.")
+        if not MATPLOTLIB_AVAILABLE:
+            print("Error: matplotlib is required for live visualization")
             return False
             
         self.live_mode = True
@@ -452,7 +357,7 @@ class EnhancedMotionVisualizer:
         
     def update_live_plots(self, frame):
         """Update plots with latest data for live visualization"""
-        if not self.parser.raw_data:
+        if not self.parser.raw_data and not self.parser.angles:
             return
             
         # Clear and redraw all plots
@@ -694,9 +599,10 @@ class EnhancedMotionVisualizer:
         lines.append("")
         
         # Time range
-        if self.parser.raw_data:
-            start_time = min([d['timestamp'] for d in self.parser.raw_data])
-            end_time = max([d['timestamp'] for d in self.parser.raw_data])
+        all_data = list(self.parser.raw_data) + list(self.parser.angles)
+        if all_data:
+            start_time = min([d['timestamp'] for d in all_data])
+            end_time = max([d['timestamp'] for d in all_data])
             duration = end_time - start_time
             lines.append(f"Time Range: {start_time:.2f}s to {end_time:.2f}s (Duration: {duration:.2f}s)")
             lines.append("")
@@ -706,241 +612,50 @@ class EnhancedMotionVisualizer:
             lines.append("Final ANGLES Statistics:")
             alt_stats = self._calculate_angle_stats([d['altitude'] for d in self.parser.angles])
             az_stats = self._calculate_angle_stats([d['azimuth'] for d in self.parser.angles])
-            zen_stats = self._calculate_angle_stats([d['zenith'] for d in self.parser.angles])
-            lines.append(f"  Altitude: min={alt_stats['min']:.1f}°, max={alt_stats['max']:.1f}°, std={alt_stats['std']:.1f}°")
-            lines.append(f"  Azimuth:  min={az_stats['min']:.1f}°, max={az_stats['max']:.1f}°, std={az_stats['std']:.1f}°")
-            lines.append(f"  Zenith:   min={zen_stats['min']:.1f}°, max={zen_stats['max']:.1f}°, std={zen_stats['std']:.1f}°")
-            lines.append("")
-        
-        # Gyro bias statistics
-        if self.parser.gyro_bias:
-            lines.append("Gyro Bias Statistics:")
-            bias_x_stats = self._calculate_angle_stats([d['bias_x'] for d in self.parser.gyro_bias])
-            bias_y_stats = self._calculate_angle_stats([d['bias_y'] for d in self.parser.gyro_bias])
-            bias_z_stats = self._calculate_angle_stats([d['bias_z'] for d in self.parser.gyro_bias])
-            lines.append(f"  Bias X: {bias_x_stats['mean']:.3f}±{bias_x_stats['std']:.3f} dps")
-            lines.append(f"  Bias Y: {bias_y_stats['mean']:.3f}±{bias_y_stats['std']:.3f} dps")
-            lines.append(f"  Bias Z: {bias_z_stats['mean']:.3f}±{bias_z_stats['std']:.3f} dps")
-        
-        return "\n".join(lines)
-        
-    def _calculate_angle_stats(self, angles):
-        """Calculate basic statistics for angle data"""
-        if not angles:
-            return {'min': 0, 'max': 0, 'mean': 0, 'std': 0}
-            
-        angles_array = np.array(angles)
+
+    def _calculate_angle_stats(self, values):
+        import numpy as np
+        if not values:
+            return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'range': 0.0}
+        arr = np.array(values)
         return {
-            'min': np.min(angles_array),
-            'max': np.max(angles_array),
-            'mean': np.mean(angles_array),
-            'std': np.std(angles_array)
+            'mean': np.mean(arr),
+            'min': np.min(arr),
+            'max': np.max(arr),
+            'range': np.max(arr) - np.min(arr)
         }
-        
-    def _plot_live_comparison(self, ax):
-        """Plot comparison of all angle sources for live mode"""
-        # Plot final angles if available
-        if self.parser.angles:
-            timestamps = [d['timestamp'] for d in self.parser.angles]
-            altitudes = [d['altitude'] for d in self.parser.angles]
-            azimuths = [d['azimuth'] for d in self.parser.angles]
-            zeniths = [d['zenith'] for d in self.parser.angles]
-            
-            ax.plot(timestamps, altitudes, 'r-', label='Final Altitude', alpha=0.9, linewidth=2)
-            ax.plot(timestamps, azimuths, 'g-', label='Final Azimuth', alpha=0.9, linewidth=2)
-            ax.plot(timestamps, zeniths, 'b-', label='Final Zenith', alpha=0.9, linewidth=2)
-        
-        # Overlay other angle sources for comparison
-        if self.parser.angles_di:
-            timestamps = [d['timestamp'] for d in self.parser.angles_di]
-            pitch = [d['pitch'] for d in self.parser.angles_di]
-            yaw = [d['yaw'] for d in self.parser.angles_di]
-            roll = [d['roll'] for d in self.parser.angles_di]
-            
-            ax.plot(timestamps, pitch, 'r:', label='DI Pitch', alpha=0.5)
-            ax.plot(timestamps, yaw, 'g:', label='DI Yaw', alpha=0.5)
-            ax.plot(timestamps, roll, 'b:', label='DI Roll', alpha=0.5)
-        
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel('Angle (degrees)')
-        ax.legend()
-
-class LiveDataReader:
-    """Thread-safe data reader for live mode"""
-    def __init__(self, parser, port, baudrate=115200):
-        self.parser = parser
-        self.port = port
-        self.baudrate = baudrate
-        self.running = False
-        self.thread = None
-        self.console = None
-        
-    def start(self):
-        """Start the live data reading thread"""
-        if not LIVE_MODE_AVAILABLE:
-            return False
-            
-        try:
-            self.console = MotionConsole()
-            self.console.connect(self.port, self.baudrate)
-            self.running = True
-            self.thread = threading.Thread(target=self._read_loop, daemon=True)
-            self.thread.start()
-            return True
-        except Exception as e:
-            print(f"Error starting live data reader: {e}")
-            return False
-    
-    def stop(self):
-        """Stop the live data reading thread"""
-        self.running = False
-        if self.console:
-            self.console.close()
-        if self.thread:
-            self.thread.join(timeout=1.0)
-    
-    def _read_loop(self):
-        """Main loop for reading live data"""
-        while self.running:
-            try:
-                line = self.console.read_line(timeout=0.1)
-                if line:
-                    self.parser.parse_live_data(line)
-            except Exception as e:
-                if self.running:  # Only print error if we're still supposed to be running
-                    print(f"Error reading live data: {e}")
-                break
-
-def main():
-    """Main function with argument parsing"""
-    parser = argparse.ArgumentParser(description='Enhanced Motion Detection Debug Visualizer')
-    parser.add_argument('logfile', nargs='?', help='Log file to analyze (required for file mode)')
-    parser.add_argument('--live', action='store_true', help='Enable live data visualization')
-    parser.add_argument('--port', type=str, help='Serial port for live mode (e.g., /dev/ttyUSB0, COM3)')
-    parser.add_argument('--baudrate', type=int, default=115200, help='Serial port baudrate (default: 115200)')
-    parser.add_argument('--samples', type=int, default=2000, help='Maximum samples to keep in live mode (default: 2000)')
-    parser.add_argument('--text-only', action='store_true', help='Text-only mode (no visualization)')
-    
-    args = parser.parse_args()
-    
-    # Validate arguments
-    if args.live:
-        if not LIVE_MODE_AVAILABLE:
-            print("Error: Live mode not available. console_reader module not found.")
-            print("Make sure console_reader.py is in the same directory.")
-            sys.exit(1)
-        if not args.port:
-            print("Error: --port is required for live mode")
-            sys.exit(1)
-    else:
-        if not args.logfile:
-            print("Error: Log file is required for file mode")
-            parser.print_help()
-            sys.exit(1)
-        if not os.path.exists(args.logfile):
-            print(f"Error: Log file '{args.logfile}' not found")
-            sys.exit(1)
-    
-    # Create parser
-    data_parser = EnhancedMotionDataParser(max_live_samples=args.samples)
-    
-    if args.live:
-        # Live mode requires matplotlib
-        if not MATPLOTLIB_AVAILABLE:
-            print("Error: matplotlib is required for live visualization.")
-            print("Please install matplotlib first:")
-            print("  sudo apt install python3-matplotlib")
-            print("  or: pip3 install matplotlib")
-            sys.exit(1)
-        
-        # Create visualizer and start live mode
-        visualizer = EnhancedMotionVisualizer(data_parser)
-        print(f"Starting live visualization on port {args.port} at {args.baudrate} baud...")
-        
-        # Enable live mode
-        data_parser.enable_live_mode()
-        
-        # Create live visualization
-        if not visualizer.create_live_visualization():
-            sys.exit(1)
-        
-        # Start data reader
-        live_reader = LiveDataReader(data_parser, args.port, args.baudrate)
-        if not live_reader.start():
-            print("Failed to start live data reader")
-            sys.exit(1)
-        
-        # Start animation
-        try:
-            ani = FuncAnimation(visualizer.fig, visualizer.update_live_plots, 
-                              interval=100, blit=False, cache_frame_data=False)
-            plt.show()
-        except KeyboardInterrupt:
-            print("\nStopping live visualization...")
-        finally:
-            live_reader.stop()
-            
-    else:
-        # File mode
-        print(f"Analyzing log file: {args.logfile}")
-        
-        # Parse log file
-        data_parser.parse_log_file(args.logfile)
-        
-        if args.text_only or not MATPLOTLIB_AVAILABLE:
-            # Text-only mode
-            print("\n" + "="*60)
-            print("TEXT-ONLY ANALYSIS MODE")
-            print("="*60)
-            
-            # Print basic statistics
-            print("\nData Summary:")
-            print(f"  Raw data samples: {len(data_parser.raw_data)}")
-            print(f"  Final angles samples: {len(data_parser.angles)}")
-            print(f"  MotionDI angles samples: {len(data_parser.angles_di)}")
-            print(f"  Simple Integration samples: {len(data_parser.angles_si)}")
-            print(f"  Complementary filter samples: {len(data_parser.angles_co)}")
-            print(f"  Fused angles samples: {len(data_parser.angles_fu)}")
-            print(f"  Gyro bias samples: {len(data_parser.gyro_bias)}")
-            
-            if data_parser.raw_data:
-                start_time = min([d['timestamp'] for d in data_parser.raw_data])
-                end_time = max([d['timestamp'] for d in data_parser.raw_data])
-                duration = end_time - start_time
-                print(f"\nTime Range: {start_time:.2f}s to {end_time:.2f}s (Duration: {duration:.2f}s)")
-            
-            # Print angle statistics
-            if data_parser.angles:
-                print("\nFinal ANGLES Statistics:")
-                altitudes = [d['altitude'] for d in data_parser.angles]
-                azimuths = [d['azimuth'] for d in data_parser.angles]
-                zeniths = [d['zenith'] for d in data_parser.angles]
-                
-                print(f"  Altitude: min={min(altitudes):.1f}°, max={max(altitudes):.1f}°, mean={np.mean(altitudes):.1f}°, std={np.std(altitudes):.1f}°")
-                print(f"  Azimuth:  min={min(azimuths):.1f}°, max={max(azimuths):.1f}°, mean={np.mean(azimuths):.1f}°, std={np.std(azimuths):.1f}°")
-                print(f"  Zenith:   min={min(zeniths):.1f}°, max={max(zeniths):.1f}°, mean={np.mean(zeniths):.1f}°, std={np.std(zeniths):.1f}°")
-            
-            # Print gyro bias statistics
-            if data_parser.gyro_bias:
-                print("\nGyro Bias Statistics:")
-                bias_x = [d['bias_x'] for d in data_parser.gyro_bias]
-                bias_y = [d['bias_y'] for d in data_parser.gyro_bias]
-                bias_z = [d['bias_z'] for d in data_parser.gyro_bias]
-                
-                print(f"  Bias X: {np.mean(bias_x):.3f}±{np.std(bias_x):.3f} dps")
-                print(f"  Bias Y: {np.mean(bias_y):.3f}±{np.std(bias_y):.3f} dps")
-                print(f"  Bias Z: {np.mean(bias_z):.3f}±{np.std(bias_z):.3f} dps")
-            
-            print("\n" + "="*60)
-            print("Analysis complete. Use --text-only flag to force this mode.")
-            if not MATPLOTLIB_AVAILABLE:
-                print("Install matplotlib for full visualization capabilities.")
-            print("="*60)
-            
-        else:
-            # Full visualization mode
-            visualizer = EnhancedMotionVisualizer(data_parser)
-            visualizer.create_static_visualization()
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Enhanced Motion Detection Debug Visualizer")
+    parser.add_argument("logfile", nargs="?", help="Path to motion detection log file")
+    parser.add_argument("--live", action="store_true", help="Enable live visualization mode")
+    parser.add_argument("--port", type=str, default="COM15", help="Serial port for live mode")
+    parser.add_argument("--baudrate", type=int, default=115200, help="Baud rate for serial connection")
+
+    args = parser.parse_args()
+
+    data_parser = EnhancedMotionDataParser()
+
+    if args.live:
+        data_parser.enable_live_mode()
+        console = MotionConsole(rx_callback=data_parser.parse_live_data)
+        if console.connect(args.port, args.baudrate):
+            console.enable_raw_output()
+            print("Live mode enabled. Receiving data...")
+            visualizer = EnhancedMotionVisualizer(data_parser)
+            if visualizer.create_live_visualization():
+                from matplotlib.animation import FuncAnimation
+                ani = FuncAnimation(visualizer.fig, visualizer.update_live_plots, interval=500)
+                import matplotlib.pyplot as plt
+                plt.show()
+            console.disconnect()
+        else:
+            print(f"Failed to connect to {args.port}")
+    elif args.logfile:
+        data_parser.parse_log_file(args.logfile)
+        visualizer = EnhancedMotionVisualizer(data_parser)
+        visualizer.create_static_visualization()
+    else:
+        print("Please provide a log file or use --live mode.")
