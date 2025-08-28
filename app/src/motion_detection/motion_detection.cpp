@@ -214,11 +214,11 @@ bool MotionDetection::processData(MotionSensorData &data, uint64_t sample_timest
     _processStateMachine();
 
     if (sample_index == 0) {
-        if (PRINT_RAW)    _printRawData(data);
-        if (PRINT_ANGLES) _printAngleData(sample_timestamp_us);
-        if (PRINT_QUAT)   _printQuatData(sample_timestamp_us);
-        if (PRINT_INFO)   _printEulerData(sample_timestamp_us);
-        if (PRINT_BIAS)   _printBiasData(sample_timestamp_us);
+        if (PRINT_RAW)       _printRawData(data);
+        if (PRINT_ANGLES)    _printAngleData(sample_timestamp_us);
+        if (PRINT_QUAT)      _printQuatData(sample_timestamp_us);
+        if (PRINT_BIAS)      _printBiasData(sample_timestamp_us);
+        if (PRINT_ESTIMATOR) _printEstimatorAngles(sample_timestamp_us);
     }
 
     return true;
@@ -295,23 +295,7 @@ void MotionDetection::_updateMotionEstimator(const MotionSensorData &data) {
     MotionEstimator::Output output = _motion_estimator->update(
         accel_enu, gyro_enu, data.timestamp_us);
     
-    // Print detailed debug info if enabled
-    if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
-        MotionEstimator::DebugInfo debug_info;
-        _motion_estimator->getDebugInfo(debug_info);
-        
-        console->printOutput("MotionEstimator Debug:\n");
-        console->printOutputWoTime("  Simple Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                           debug_info.simple_filter[0], debug_info.simple_filter[1], debug_info.simple_filter[2]);
-        console->printOutputWoTime("  Complementary Filter: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                           debug_info.complementary_filter[0], debug_info.complementary_filter[1], debug_info.complementary_filter[2]);
-        console->printOutputWoTime("  Fused Output: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                           debug_info.fused_output[0], debug_info.fused_output[1], debug_info.fused_output[2]);
-        console->printOutputWoTime("  Reference: Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                           debug_info.reference_angles[0], debug_info.reference_angles[1], debug_info.reference_angles[2]);
-        console->printOutputWoTime("  Calibration: %s (%d samples)\n",
-                           debug_info.is_calibrated ? "Ready" : "In Progress", debug_info.calibration_samples);
-    }
+    // Debug info is now printed via _printEstimatorAngles() when PRINT_ESTIMATOR is enabled
     
 }
 void MotionDetection::_processStateMachine()
@@ -458,17 +442,7 @@ void MotionDetection::_updateAngles(){
             float horizontal_coords[3];
             horizontalToEuler(mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2], _last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees);
             
-            if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
-                console->printOutput("MotionEstimator Fusion:\n");
-                console->printOutput("  Input (MotionDI): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                                mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2]);
-                console->printOutput("  Output (Fused): Yaw=%f deg, Pitch=%f deg, Roll=%f deg\n",
-                                fused_euler_angles[0], fused_euler_angles[1], fused_euler_angles[2]);
-                console->printOutput("  Horizontal Coords: Azimuth=%f deg, Altitude=%f deg, Zenith=%f deg\n",
-                                horizontal_coords[0], horizontal_coords[1], horizontal_coords[2]);
-                console->printOutput("  Trust Vector: [%f, %f, %f]\n",
-                                trust_vector[0], trust_vector[1], trust_vector[2]);
-            }
+            // Fusion debug info is now printed via _printEstimatorAngles() when PRINT_ESTIMATOR is enabled
 }
 // TODO: do we go back to monitoring after we clear an event/threshold exceeded? If we exceed threshold but then go back, what happens? We should go back to monitoring, but we see that we stay in validation?
 void MotionDetection::_updateValidationState()
@@ -738,6 +712,7 @@ void MotionDetection::setDebugMask(unsigned int new_mask)
     PRINT_QUAT = (new_mask & DEBUG_PRINT_QUAT_ENABLE_MASK) != 0;
     PRINT_EVENTS = (new_mask & DEBUG_PRINT_EVENTS_ENABLE_MASK) != 0;
     PRINT_BIAS = (new_mask & DEBUG_PRINT_BIAS_ENABLE_MASK) != 0;
+    PRINT_ESTIMATOR = (new_mask & DEBUG_PRINT_ESTIMATOR_ENABLE_MASK) != 0;
 }
 
 const char *MotionDetection::getStateString() const
@@ -837,6 +812,7 @@ void MotionDetection::_applyModeConfiguration()
     if(_operation_mode == MotionMode::DEBUG) {
         PRINT_RAW = PRINT_INFO = PRINT_ANGLES = true;
         PRINT_QUAT = PRINT_EVENTS = PRINT_BIAS = true;
+        PRINT_ESTIMATOR = true;
     }
 }
 bool MotionDetection::_checkMotionThresholdsWithMode()
@@ -1064,12 +1040,37 @@ void MotionDetection::_printCalibrationComplete(uint64_t timestamp_us)
     console->printOutput("CALIBRATION_COMPLETE,%u\n", timestamp_us);
 }
 
-void MotionDetection::_printEulerData(uint64_t timestamp_us)
+void MotionDetection::_printEstimatorAngles(uint64_t timestamp_us)
 {
-    // Calculate and print Euler angles from MotionDI quaternion
+    // Print MotionDI euler angles (ANGLES_DI)
     float roll, pitch, yaw;
     QuaternionMath::toEulerAngles(_current_quat, roll, pitch, yaw);
-
-    console->printOutput("EULER_FROM_MDI_QUAT,%u,%f,%f,%f\n",
-                        timestamp_us, yaw, pitch, roll);
+    console->printOutput("ANGLES_DI,%u,%f,%f,%f\n", timestamp_us, pitch, yaw, roll);
+    
+    // Print MotionEstimator data if available
+    if (_motion_estimator && _motion_estimator->isReady()) {
+        MotionEstimator::DebugInfo debug_info;
+        _motion_estimator->getDebugInfo(debug_info);
+        
+        // Simple Integration Filter (ANGLES_SI)
+        console->printOutput("ANGLES_SI,%u,%f,%f,%f\n", 
+                           timestamp_us, 
+                           debug_info.simple_filter[1],      // pitch
+                           debug_info.simple_filter[0],      // yaw 
+                           debug_info.simple_filter[2]);     // roll
+        
+        // Complementary Filter (ANGLES_CO)
+        console->printOutput("ANGLES_CO,%u,%f,%f,%f\n", 
+                           timestamp_us, 
+                           debug_info.complementary_filter[1],  // pitch
+                           debug_info.complementary_filter[0],  // yaw
+                           debug_info.complementary_filter[2]); // roll
+        
+        // Fused Output (ANGLES_FU) - combination of MDI and MotionEstimator
+        console->printOutput("ANGLES_FU,%u,%f,%f,%f\n", 
+                           timestamp_us, 
+                           debug_info.fused_output[1],       // pitch
+                           debug_info.fused_output[0],       // yaw
+                           debug_info.fused_output[2]);      // roll
+    }
 }

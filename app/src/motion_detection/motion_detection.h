@@ -25,6 +25,7 @@
 #define DEBUG_PRINT_QUAT_ENABLE_MASK      (0x08)
 #define DEBUG_PRINT_EVENTS_ENABLE_MASK    (0x10)
 #define DEBUG_PRINT_BIAS_ENABLE_MASK      (0x20)
+#define DEBUG_PRINT_ESTIMATOR_ENABLE_MASK (0x40)
 
 extern "C"
 {
@@ -352,7 +353,7 @@ private:
     void _printBiasData(uint64_t timestamp_us);
     void _printReferenceQuaternion(uint64_t timestamp_us);
     void _printCalibrationComplete(uint64_t timestamp_us);
-    void _printEulerData(uint64_t timestamp_us);
+    void _printEstimatorAngles(uint64_t timestamp_us);
 
     // Mode configuration
     struct TimingSystem
