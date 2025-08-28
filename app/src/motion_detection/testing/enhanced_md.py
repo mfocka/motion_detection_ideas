@@ -26,10 +26,6 @@ Examples:
 
 import sys
 import re
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from matplotlib.animation import FuncAnimation
 import argparse
 from datetime import datetime
 import threading
@@ -38,7 +34,30 @@ import time
 from collections import deque
 import os
 
-from console_reader import MotionConsole
+# Try to import required packages
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    print("Warning: numpy not available. Some statistical features will be limited.")
+
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    from matplotlib.animation import FuncAnimation
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    print("Warning: matplotlib not available. Visualization will be disabled.")
+
+# Try to import console_reader for live mode
+try:
+    from console_reader import MotionConsole
+    LIVE_MODE_AVAILABLE = True
+except ImportError:
+    LIVE_MODE_AVAILABLE = False
+    print("Warning: console_reader not available. Live mode will be disabled.")
 
 class EnhancedMotionDataParser:
     def __init__(self, max_live_samples=2000):
@@ -238,6 +257,11 @@ class EnhancedMotionVisualizer:
         
     def create_static_visualization(self):
         """Create static visualization of motion data from log file"""
+        if not MATPLOTLIB_AVAILABLE:
+            print("Matplotlib not available. Creating text-based analysis...")
+            self._create_text_analysis()
+            return
+            
         if not self.parser.raw_data:
             print("No data to visualize!")
             return
@@ -549,22 +573,221 @@ class EnhancedMotionVisualizer:
         ax.legend()
         
     def _plot_analysis_summary(self, ax):
-        """Plot analysis summary"""
-        if not self.parser.analysis_summary:
-            return
-            
-        timestamps = [d['timestamp'] for d in self.parser.analysis_summary]
-        altitudes = [d['altitude'] for d in self.parser.analysis_summary]
-        azimuths = [d['azimuth'] for d in self.parser.analysis_summary]
-        zeniths = [d['zenith'] for d in self.parser.analysis_summary]
+        """Plot analysis summary with statistics and insights"""
+        # Create a text-based summary plot
+        ax.axis('off')
         
-        ax.plot(timestamps, altitudes, 'r-', label='Altitude', alpha=0.8)
-        ax.plot(timestamps, azimuths, 'g-', label='Azimuth', alpha=0.8)
-        ax.plot(timestamps, zeniths, 'b-', label='Zenith', alpha=0.8)
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel('Angle (degrees)')
-        ax.legend()
+        # Calculate statistics
+        stats_text = self._generate_statistics_text()
+        
+        # Display statistics as text
+        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+        
+    def _generate_statistics_text(self):
+        """Generate statistical summary text"""
+        lines = []
+        lines.append("=== MOTION DETECTION ANALYSIS SUMMARY ===\n")
+        
+        # Data availability summary
+        lines.append("Data Availability:")
+        lines.append(f"  Raw Data Samples: {len(self.parser.raw_data)}")
+        lines.append(f"  ANGLES Samples: {len(self.parser.angles)}")
+        lines.append(f"  ANGLES_DI Samples: {len(self.parser.angles_di)}")
+        lines.append(f"  ANGLES_SI Samples: {len(self.parser.angles_si)}")
+        lines.append(f"  ANGLES_CO Samples: {len(self.parser.angles_co)}")
+        lines.append(f"  ANGLES_FU Samples: {len(self.parser.angles_fu)}")
+        lines.append(f"  Gyro Bias Samples: {len(self.parser.gyro_bias)}")
+        lines.append("")
+        
+        # Time range
+        if self.parser.raw_data:
+            start_time = min([d['timestamp'] for d in self.parser.raw_data])
+            end_time = max([d['timestamp'] for d in self.parser.raw_data])
+            duration = end_time - start_time
+            lines.append(f"Time Range: {start_time:.2f}s to {end_time:.2f}s (Duration: {duration:.2f}s)")
+            lines.append("")
+        
+        # Statistics for each angle source
+        if self.parser.angles:
+            lines.append("Final ANGLES Statistics:")
+            alt_stats = self._calculate_angle_stats([d['altitude'] for d in self.parser.angles])
+            az_stats = self._calculate_angle_stats([d['azimuth'] for d in self.parser.angles])
+            zen_stats = self._calculate_angle_stats([d['zenith'] for d in self.parser.angles])
+            lines.append(f"  Altitude: min={alt_stats['min']:.1f}°, max={alt_stats['max']:.1f}°, std={alt_stats['std']:.1f}°")
+            lines.append(f"  Azimuth:  min={az_stats['min']:.1f}°, max={az_stats['max']:.1f}°, std={az_stats['std']:.1f}°")
+            lines.append(f"  Zenith:   min={zen_stats['min']:.1f}°, max={zen_stats['max']:.1f}°, std={zen_stats['std']:.1f}°")
+            lines.append("")
+        
+        # Gyro bias statistics
+        if self.parser.gyro_bias:
+            lines.append("Gyro Bias Statistics:")
+            bias_x_stats = self._calculate_angle_stats([d['bias_x'] for d in self.parser.gyro_bias])
+            bias_y_stats = self._calculate_angle_stats([d['bias_y'] for d in self.parser.gyro_bias])
+            bias_z_stats = self._calculate_angle_stats([d['bias_z'] for d in self.parser.gyro_bias])
+            lines.append(f"  Bias X: {bias_x_stats['mean']:.3f}±{bias_x_stats['std']:.3f} dps")
+            lines.append(f"  Bias Y: {bias_y_stats['mean']:.3f}±{bias_y_stats['std']:.3f} dps")
+            lines.append(f"  Bias Z: {bias_z_stats['mean']:.3f}±{bias_z_stats['std']:.3f} dps")
+        
+        return "\n".join(lines)
+        
+    def _calculate_angle_stats(self, angles):
+        """Calculate basic statistics for angle data"""
+        if not angles:
+            return {'min': 0, 'max': 0, 'mean': 0, 'std': 0}
+            
+        angles_array = np.array(angles)
+        return {
+            'min': np.min(angles_array),
+            'max': np.max(angles_array),
+            'mean': np.mean(angles_array),
+            'std': np.std(angles_array)
+        }
         
     def _plot_live_comparison(self, ax):
         """Plot comparison of all angle sources for live mode"""
-        pass
+        # Plot final angles if available
+        if self.parser.angles:
+            timestamps = [d['timestamp'] for d in self.parser.angles]
+            altitudes = [d['altitude'] for d in self.parser.angles]
+            azimuths = [d['azimuth'] for d in self.parser.angles]
+            zeniths = [d['zenith'] for d in self.parser.angles]
+            
+            ax.plot(timestamps, altitudes, 'r-', label='Final Altitude', alpha=0.9, linewidth=2)
+            ax.plot(timestamps, azimuths, 'g-', label='Final Azimuth', alpha=0.9, linewidth=2)
+            ax.plot(timestamps, zeniths, 'b-', label='Final Zenith', alpha=0.9, linewidth=2)
+        
+        # Overlay other angle sources for comparison
+        if self.parser.angles_di:
+            timestamps = [d['timestamp'] for d in self.parser.angles_di]
+            pitch = [d['pitch'] for d in self.parser.angles_di]
+            yaw = [d['yaw'] for d in self.parser.angles_di]
+            roll = [d['roll'] for d in self.parser.angles_di]
+            
+            ax.plot(timestamps, pitch, 'r:', label='DI Pitch', alpha=0.5)
+            ax.plot(timestamps, yaw, 'g:', label='DI Yaw', alpha=0.5)
+            ax.plot(timestamps, roll, 'b:', label='DI Roll', alpha=0.5)
+        
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Angle (degrees)')
+        ax.legend()
+
+class LiveDataReader:
+    """Thread-safe data reader for live mode"""
+    def __init__(self, parser, port, baudrate=115200):
+        self.parser = parser
+        self.port = port
+        self.baudrate = baudrate
+        self.running = False
+        self.thread = None
+        self.console = None
+        
+    def start(self):
+        """Start the live data reading thread"""
+        if not LIVE_MODE_AVAILABLE:
+            return False
+            
+        try:
+            self.console = MotionConsole()
+            self.console.connect(self.port, self.baudrate)
+            self.running = True
+            self.thread = threading.Thread(target=self._read_loop, daemon=True)
+            self.thread.start()
+            return True
+        except Exception as e:
+            print(f"Error starting live data reader: {e}")
+            return False
+    
+    def stop(self):
+        """Stop the live data reading thread"""
+        self.running = False
+        if self.console:
+            self.console.close()
+        if self.thread:
+            self.thread.join(timeout=1.0)
+    
+    def _read_loop(self):
+        """Main loop for reading live data"""
+        while self.running:
+            try:
+                line = self.console.read_line(timeout=0.1)
+                if line:
+                    self.parser.parse_live_data(line)
+            except Exception as e:
+                if self.running:  # Only print error if we're still supposed to be running
+                    print(f"Error reading live data: {e}")
+                break
+
+def main():
+    """Main function with argument parsing"""
+    parser = argparse.ArgumentParser(description='Enhanced Motion Detection Debug Visualizer')
+    parser.add_argument('logfile', nargs='?', help='Log file to analyze (required for file mode)')
+    parser.add_argument('--live', action='store_true', help='Enable live data visualization')
+    parser.add_argument('--port', type=str, help='Serial port for live mode (e.g., /dev/ttyUSB0, COM3)')
+    parser.add_argument('--baudrate', type=int, default=115200, help='Serial port baudrate (default: 115200)')
+    parser.add_argument('--samples', type=int, default=2000, help='Maximum samples to keep in live mode (default: 2000)')
+    
+    args = parser.parse_args()
+    
+    # Validate arguments
+    if args.live:
+        if not LIVE_MODE_AVAILABLE:
+            print("Error: Live mode not available. console_reader module not found.")
+            print("Make sure console_reader.py is in the same directory.")
+            sys.exit(1)
+        if not args.port:
+            print("Error: --port is required for live mode")
+            sys.exit(1)
+    else:
+        if not args.logfile:
+            print("Error: Log file is required for file mode")
+            parser.print_help()
+            sys.exit(1)
+        if not os.path.exists(args.logfile):
+            print(f"Error: Log file '{args.logfile}' not found")
+            sys.exit(1)
+    
+    # Create parser and visualizer
+    data_parser = EnhancedMotionDataParser(max_live_samples=args.samples)
+    visualizer = EnhancedMotionVisualizer(data_parser)
+    
+    if args.live:
+        # Live mode
+        print(f"Starting live visualization on port {args.port} at {args.baudrate} baud...")
+        
+        # Enable live mode
+        data_parser.enable_live_mode()
+        
+        # Create live visualization
+        if not visualizer.create_live_visualization():
+            sys.exit(1)
+        
+        # Start data reader
+        live_reader = LiveDataReader(data_parser, args.port, args.baudrate)
+        if not live_reader.start():
+            print("Failed to start live data reader")
+            sys.exit(1)
+        
+        # Start animation
+        try:
+            ani = FuncAnimation(visualizer.fig, visualizer.update_live_plots, 
+                              interval=100, blit=False, cache_frame_data=False)
+            plt.show()
+        except KeyboardInterrupt:
+            print("\nStopping live visualization...")
+        finally:
+            live_reader.stop()
+            
+    else:
+        # File mode
+        print(f"Analyzing log file: {args.logfile}")
+        
+        # Parse log file
+        data_parser.parse_log_file(args.logfile)
+        
+        # Create static visualization
+        visualizer.create_static_visualization()
+
+if __name__ == "__main__":
+    main()
