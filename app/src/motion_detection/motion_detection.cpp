@@ -232,18 +232,6 @@ void MotionDetection::_convertWDStoENU(const float wds[3], float enu[3])
     enu[1] = -wds[2];  // North = -South  
     enu[2] = -wds[1];  // Up = -Down
 }
-void MotionDetection::_applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3])
-{
-    // Use the HorizontalCoordinatesMapping from header
-    // EulerAngles: YAW=0, PITCH=1, ROLL=2
-    // HorizontalCoordinatesMapping: AZIMUTH=, ALTITUDE=, ZENITH= # TODO: validate
-    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::AZIMUTH)] = 
-        euler_angles[static_cast<int>(EulerAngles::YAW)];
-    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ALTITUDE)] = 
-        euler_angles[static_cast<int>(EulerAngles::PITCH)];  
-    horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ZENITH)] = 
-        euler_angles[static_cast<int>(EulerAngles::ROLL)];
-}
 
 void MotionDetection::_updateMotionDI(const MotionSensorData &data)
 {
@@ -339,13 +327,19 @@ void MotionDetection::_processStateMachine()
             // Check MotionDI calibration status (primary)
             MDI_cal_output_t mdi_gyro_cal;
             MotionDI_GyrCal_getParams(&mdi_gyro_cal);
-            
-            if (_calibration_sample_count >= CALIBRATION_SAMPLES) {
-
-                // Simple calibration completion check
-                const float eps = 1e-67f;
-                if( fabsf(mdi_gyro_cal.Bias[0] - mdi_gyro_cal.Bias[1]) < eps &&
-                    fabsf(mdi_gyro_cal.Bias[1] - mdi_gyro_cal.Bias[2]) < eps) {
+            if (_calibration_sample_count >= MINIMUM_CALIBRATION_SAMPLES) {
+                // Check if MotionDI has converged
+                if (mdi_gyro_cal.CalQuality >= MDI_CAL_OK) {
+                    // Early termination - proceed with calibration
+                    console->printOutput("MotionDI calibration complete at sample %u\n", _calibration_sample_count);
+                    console->printOutput("Final gyro bias: [%f, %f, %f] dps\n", 
+                                    mdi_gyro_cal.Bias[0], mdi_gyro_cal.Bias[1], mdi_gyro_cal.Bias[2]);
+                    // if (_motion_estimator && !_motion_estimator->isReady()) {
+                    //     // TODO: FORCE ISREADY
+                    // }
+                }
+                else if (_calibration_sample_count >= CALIBRATION_SAMPLES)
+                {
                     mdi_gyro_cal.Bias[0] = -0.411;
                     mdi_gyro_cal.Bias[1] = 0.587;
                     mdi_gyro_cal.Bias[2] = 0.774;
@@ -357,11 +351,8 @@ void MotionDetection::_processStateMachine()
                         mdi_gyro_cal.Bias[2]
                     );
                 }
-                else{
-                    console->printOutput("MotionDI calibration complete at sample %u\n", _calibration_sample_count);
-                    console->printOutput("Final gyro bias: [%f, %f, %f] dps\n", 
-                                    mdi_gyro_cal.Bias[0], mdi_gyro_cal.Bias[1], mdi_gyro_cal.Bias[2]);
-                }
+                
+            
                 // Share gyro bias with MotionEstimator
                 if (_motion_estimator) {
                     _motion_estimator->setGyroBiasFromExternal(mdi_gyro_cal.Bias);
@@ -449,10 +440,9 @@ void MotionDetection::_updateAngles(){
             _checkAndApplyPeriodicReset();
             
             // TODO: Improve set-up of all this for updateCompleteEulerAngles
-            float mdi_euler_angles[3];
-            mdi_euler_angles[static_cast<int>(EulerAngles::YAW)] = _last_result.azimuth_angle_degrees;
-            mdi_euler_angles[static_cast<int>(EulerAngles::PITCH)] = _last_result.altitude_angle_degrees; 
-            mdi_euler_angles[static_cast<int>(EulerAngles::ROLL)] = _last_result.zenith_angle_degrees;
+            float mdi_yaw, mdi_roll, mdi_pitch = 0;
+            eulerToHorizontal(_last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees, mdi_yaw, mdi_pitch, mdi_roll);
+            float mdi_euler_angles[3] = {mdi_yaw, mdi_pitch, mdi_roll};
             // Apply MotionEstimator fusion and cross-checking
             float trust_vector[3] = {0.3f, 0.9f, 0.5f}; // Low trust in yaw, high trust in pitch, medium trust in roll
             float fused_euler_angles[3] = {0.0f, 0.0f, 0.0f};
@@ -461,12 +451,7 @@ void MotionDetection::_updateAngles(){
             _motion_estimator->updateCompleteEulerAngles(mdi_euler_angles, trust_vector, fused_euler_angles);
 
             float horizontal_coords[3];
-            _applyHorizontalMapping(fused_euler_angles, horizontal_coords);
-            
-            // Update results with mapped coordinates
-            _last_result.azimuth_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::AZIMUTH)];
-            _last_result.altitude_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ALTITUDE)];
-            _last_result.zenith_angle_degrees = horizontal_coords[static_cast<int>(HorizontalCoordinatesMapping::ZENITH)];
+            horizontalToEuler(mdi_euler_angles[0], mdi_euler_angles[1], mdi_euler_angles[2], _last_result.azimuth_angle_degrees, _last_result.altitude_angle_degrees, _last_result.zenith_angle_degrees);
             
             if (PRINT_ESTIMATOR && _timing.total_samples_processed % 1040 == 0) {
                 console->printOutput("MotionEstimator Fusion:\n");
@@ -563,7 +548,7 @@ bool MotionDetection::calibrate()
     MotionDI_AccCal_reset();
     MotionDI_GyrCal_reset();
 
-    // TODO - RESET motion_estimator as well
+    _motion_estimator->resetCalibration();
     
     _state = MotionDetectionState::CALIBRATING;
     _calibration_sample_count = 0;
@@ -700,6 +685,11 @@ bool MotionDetection::loadCalibrationData()
         console->printOutput("MotionDetection: Failed to initialize MotionDI with bias\n");
         return false;
     }
+    _motion_estimator->setGyroBiasFromExternal(gyro_bias);
+    if(!_motion_estimator->isCalibrated()){
+        console->printOutput("MotionEstimator: Failed to initialize MotionE with bias\n");
+        return false;
+    }
 
     _altitude_threshold = ConfigFlash.appConfig.FlashMemory.data.appAltThresholdAltitude.asFloat;
     _azimuth_threshold = ConfigFlash.appConfig.FlashMemory.data.appAltThresholdAzimuth.asFloat;
@@ -811,36 +801,29 @@ void MotionDetection::_calculateAnglesToReference(const Quaternion &current, con
     data16 altitude_s, azimuth_s;
     QuaternionMath::toEulerAngles(relative, roll, pitch, yaw);
 
-    // Handle wrap-around and make angles positive for absolute tracking
-    if (yaw > 180.0f)
-    {
-        yaw = yaw - 360.0f;
-    }
-    else if (yaw < -180.0f)
-    {
-        yaw = yaw + 360.0f;
-    }
-    azimuth = roll;
+    // Apply range clamping for motion detection
+    // We only care about magnitude, so clamp to positive ranges
+    // Yaw: [0, 180] degrees, Pitch: [0, 180] degrees, Roll: [0, 90] degrees
+    
+    yaw = fabsf(yaw);
+    if (yaw > 180.0f) yaw = 180.0f;
+    
+    pitch = fabsf(pitch);
+    if (pitch > 180.0f) pitch = 180.0f;
+    
+    roll = fabsf(roll);
+    if (roll > 90.0f) roll = 90.0f;
 
-    altitude = pitch;
-
-    // Zenith (roll) wrap-around
-    if (roll > 180.0f)
-    {
-        roll = roll - 360.0f;
-    }
-    else if (roll < -180.0f)
-    {
-        roll = roll + 360.0f;
-    }
-    zenith = yaw;
+    // Use enum mapping directly for consistent coordinate assignment
+    horizontalToEuler(yaw, pitch, roll, azimuth, altitude, zenith);
 
     // update sensor data    
-    altitude_s.asUINT16 = static_cast<uint16_t>(fabsf(altitude) * 10.0f);
-    azimuth_s.asUINT16 = static_cast<uint16_t>(fabsf(azimuth) * 10.0f);
+    altitude_s.asUINT16 = static_cast<uint16_t>(altitude * 10.0f);
+    azimuth_s.asUINT16 = static_cast<uint16_t>(azimuth * 10.0f);
     _altitude_angle.updateData(altitude_s);
     _azimuth_angle.updateData(azimuth_s);
 }
+
 
 void MotionDetection::_applyModeConfiguration()
 {

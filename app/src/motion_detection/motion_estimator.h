@@ -40,7 +40,7 @@ public:
         float azimuth_threshold_deg = 10.0f;     // Azimuth change threshold in degrees
         float altitude_threshold_deg = 5.0f;     // Altitude change threshold in degrees
         uint32_t calibration_samples = 500;      // Number of samples for calibration
-        float gyro_noise_threshold_dps = 0.1f;  // Gyro noise threshold for bias calculation
+        float gyro_noise_threshold_dps = 0.8f;  // Gyro noise threshold for bias calculation
     };
 
     /**
@@ -89,6 +89,10 @@ public:
      * @return true if initialization successful
      */
     bool initialize(const Config& config);
+
+    bool isCalibrated() const {
+        return _calibration.is_calibrated;
+    }
 
     /**
      * @brief Add calibration sample for bias calculation

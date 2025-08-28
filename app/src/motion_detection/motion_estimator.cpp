@@ -236,6 +236,7 @@ void MotionEstimator::resetCalibration()
     std::memset(&_calibration, 0, sizeof(_calibration));
     _calibration.is_calibrated = false;
     _calibration.sample_count = 0;
+    resetFilterStates();
 }
 void MotionEstimator::_initPreprocessingFilter() {
     // Calculate alpha based on your desired cutoff frequency

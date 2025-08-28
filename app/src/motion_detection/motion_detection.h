@@ -41,12 +41,13 @@ static constexpr float SAMPLE_RATE_HZ = 104.0f;
 static constexpr float SAMPLE_PERIOD_S = 1.0f / SAMPLE_RATE_HZ;
 static constexpr uint32_t SAMPLE_PERIOD_US = static_cast<uint32_t>(1000000.0f / SAMPLE_RATE_HZ); // 9615
 static constexpr uint32_t CALIBRATION_SAMPLES = static_cast<uint32_t>(SAMPLE_RATE_HZ * 60); // 6240
+static constexpr uint32_t MINIMUM_CALIBRATION_SAMPLES = static_cast<uint32_t>(SAMPLE_RATE_HZ * 10); // 1040
 static constexpr uint32_t BAD_SAMPLE_THRESHOLD = 104 * 10; // 10 seconds of bad samples
 
 /**
  * @brief euler angles
  */
-enum class EulerAngles {
+enum EulerAngles {
     YAW = 0,
     PITCH = 1,
     ROLL = 2
@@ -55,10 +56,10 @@ enum class EulerAngles {
 /**
  * @brief horizontal coordinate system
  */
-enum class HorizontalCoordinatesMapping {
-    AZIMUTH = 0,   // Maps to YAW
-    ALTITUDE = 1,  // Maps to PITCH  
-    ZENITH = 2     // Maps to ROLL
+enum HorizontalCoordinatesMapping {
+    AZIMUTH = EulerAngles::YAW,   // Maps to YAW
+    ALTITUDE = EulerAngles::PITCH,  // Maps to PITCH  
+    ZENITH = EulerAngles::ROLL     // Maps to ROLL
 };
 
 /**
@@ -191,6 +192,26 @@ public:
     bool setOperationMode(MotionMode mode);
     static void setDebugMask(unsigned int new_mask);
 
+    // Angle mapping
+    void horizontalToEuler(float azimuth, float altitude, float zenith, float &yaw, float &pitch, float &roll){
+        float euler_angles[3];
+        euler_angles[EulerAngles::YAW] = yaw;
+        euler_angles[EulerAngles::PITCH] = pitch;
+        euler_angles[EulerAngles::ROLL] = roll;
+        azimuth = euler_angles[HorizontalCoordinatesMapping::AZIMUTH];
+        altitude = euler_angles[HorizontalCoordinatesMapping::ALTITUDE];
+        zenith = euler_angles[HorizontalCoordinatesMapping::ZENITH];
+    }
+    void eulerToHorizontal(float yaw, float pitch, float roll, float &azimuth, float &altitude, float &zenith){
+        float horiz_coords[3];
+        horiz_coords[HorizontalCoordinatesMapping::ALTITUDE] = altitude;
+        horiz_coords[HorizontalCoordinatesMapping::AZIMUTH] = azimuth;
+        horiz_coords[HorizontalCoordinatesMapping::ZENITH] = zenith;
+        yaw = horiz_coords[EulerAngles::YAW];
+        pitch = horiz_coords[EulerAngles::PITCH];
+        roll = horiz_coords[EulerAngles::ROLL];
+    }
+
     SensorData *getSensorData(std::uint8_t sensorId);
     std::list<SensorData *> list_of_sensor_ids;
 
@@ -316,7 +337,6 @@ private:
      * @param euler_angles Input euler angles [yaw, pitch, roll] in degrees
      * @param horizontal_coords Output [azimuth, altitude, zenith] in degrees
      */
-    void _applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3]);
     void _detectAndHandleGyroNoise(const MotionSensorData &data);
     void _updateAngles();
 
