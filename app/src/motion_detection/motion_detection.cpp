@@ -10,6 +10,7 @@
 
 #include "motion_detection.h"
 #include "motion_estimator.h"
+#include "tools.h"
 #include "console.h"
 #include "globals.h"
 #include "PLCMsg.h"
@@ -225,12 +226,13 @@ bool MotionDetection::processData(MotionSensorData &data, uint64_t sample_timest
 
 void MotionDetection::_convertWDStoENU(const float wds[3], float enu[3])
 {
-    // Transformation matrix WDS -> ENU
-    // WDS: X-West, Y-Down, Z-South
-    // ENU: X-East, Y-North, Z-Up
-    enu[0] = -wds[0];  // East = -West
-    enu[1] = -wds[2];  // North = -South  
-    enu[2] = -wds[1];  // Up = -Down
+    // Use common tools for coordinate conversion
+    MotionTools::convertWDStoENU(wds, enu);
+}
+void MotionDetection::_applyHorizontalMapping(const float euler_angles[3], float horizontal_coords[3])
+{
+    // Use common tools for coordinate mapping
+    MotionTools::eulerToHorizontal(euler_angles, horizontal_coords);
 }
 
 void MotionDetection::_updateMotionDI(const MotionSensorData &data)
@@ -245,9 +247,12 @@ void MotionDetection::_updateMotionDI(const MotionSensorData &data)
     _convertWDStoENU(data.accel_mg, accel_enu);
     _convertWDStoENU(data.gyro_dps, gyro_enu);
     
-    mdi_input.Acc[0] = accel_enu[0] / 1000.0f;
-    mdi_input.Acc[1] = accel_enu[1] / 1000.0f;
-    mdi_input.Acc[2] = accel_enu[2] / 1000.0f;
+    // Convert mg to g using tools
+    float accel_g[3];
+    MotionTools::mgToG(accel_enu, accel_g);
+    mdi_input.Acc[0] = accel_g[0];
+    mdi_input.Acc[1] = accel_g[1];
+    mdi_input.Acc[2] = accel_g[2];
     
     mdi_input.Gyro[0] = gyro_enu[0];
     mdi_input.Gyro[1] = gyro_enu[1];
