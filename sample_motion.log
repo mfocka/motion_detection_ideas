@@ -1,0 +1,35 @@
+[2024-01-15 10:00:00.123] RAW_DATA: accel_mg=[123.45, -67.89, 987.65] gyro_dps=[0.12, -0.34, 0.56] timestamp=0.000
+[2024-01-15 10:00:00.124] RAW_DATA: accel_mg=[124.12, -68.23, 987.89] gyro_dps=[0.15, -0.31, 0.58] timestamp=0.001
+[2024-01-15 10:00:00.125] RAW_DATA: accel_mg=[123.89, -67.67, 988.12] gyro_dps=[0.11, -0.35, 0.54] timestamp=0.002
+[2024-01-15 10:00:00.126] RAW_DATA: accel_mg=[124.56, -68.45, 987.34] gyro_dps=[0.18, -0.29, 0.61] timestamp=0.003
+[2024-01-15 10:00:00.127] RAW_DATA: accel_mg=[123.23, -67.12, 988.78] gyro_dps=[0.09, -0.38, 0.52] timestamp=0.004
+[2024-01-15 10:00:00.128] ANGLES: altitude=15.67 azimuth=45.23 zenith=89.12 timestamp=0.000
+[2024-01-15 10:00:00.129] ANGLES: altitude=15.89 azimuth=45.67 zenith=89.34 timestamp=0.001
+[2024-01-15 10:00:00.130] ANGLES: altitude=16.12 azimuth=46.01 zenith=89.56 timestamp=0.002
+[2024-01-15 10:00:00.131] ANGLES: altitude=15.45 azimuth=44.89 zenith=88.98 timestamp=0.003
+[2024-01-15 10:00:00.132] ANGLES: altitude=16.34 azimuth=46.45 zenith=89.78 timestamp=0.004
+[2024-01-15 10:00:00.133] ANGLES_DI: pitch=12.34 yaw=23.45 roll=34.56 timestamp=0.000
+[2024-01-15 10:00:00.134] ANGLES_DI: pitch=12.67 yaw=23.89 roll=34.78 timestamp=0.001
+[2024-01-15 10:00:00.135] ANGLES_DI: pitch=12.12 yaw=23.12 roll=34.23 timestamp=0.002
+[2024-01-15 10:00:00.136] ANGLES_DI: pitch=13.01 yaw=24.12 roll=35.34 timestamp=0.003
+[2024-01-15 10:00:00.137] ANGLES_DI: pitch=12.89 yaw=23.67 roll=34.89 timestamp=0.004
+[2024-01-15 10:00:00.138] ANGLES_SI: pitch=11.23 yaw=22.34 roll=33.45 timestamp=0.000
+[2024-01-15 10:00:00.139] ANGLES_SI: pitch=11.67 yaw=22.89 roll=33.78 timestamp=0.001
+[2024-01-15 10:00:00.140] ANGLES_SI: pitch=10.98 yaw=21.98 roll=32.89 timestamp=0.002
+[2024-01-15 10:00:00.141] ANGLES_SI: pitch=11.89 yaw=23.12 roll=34.23 timestamp=0.003
+[2024-01-15 10:00:00.142] ANGLES_SI: pitch=11.45 yaw=22.56 roll=33.67 timestamp=0.004
+[2024-01-15 10:00:00.143] ANGLES_CO: pitch=11.67 yaw=22.78 roll=33.89 timestamp=0.000
+[2024-01-15 10:00:00.144] ANGLES_CO: pitch=12.01 yaw=23.12 roll=34.23 timestamp=0.001
+[2024-01-15 10:00:00.145] ANGLES_CO: pitch=11.34 yaw=22.45 roll=33.12 timestamp=0.002
+[2024-01-15 10:00:00.146] ANGLES_CO: pitch=12.23 yaw=23.67 roll=34.78 timestamp=0.003
+[2024-01-15 10:00:00.147] ANGLES_CO: pitch=11.89 yaw=22.98 roll=33.89 timestamp=0.004
+[2024-01-15 10:00:00.148] ANGLES_FU: pitch=12.12 yaw=23.34 roll=34.56 timestamp=0.000
+[2024-01-15 10:00:00.149] ANGLES_FU: pitch=12.45 yaw=23.78 roll=34.89 timestamp=0.001
+[2024-01-15 10:00:00.150] ANGLES_FU: pitch=11.98 yaw=22.89 roll=33.78 timestamp=0.002
+[2024-01-15 10:00:00.151] ANGLES_FU: pitch=12.67 yaw=24.12 roll=35.23 timestamp=0.003
+[2024-01-15 10:00:00.152] ANGLES_FU: pitch=12.23 yaw=23.45 roll=34.45 timestamp=0.004
+[2024-01-15 10:00:00.153] GYRO_BIAS: bias_x=0.123 bias_y=-0.234 bias_z=0.345 timestamp=0.000
+[2024-01-15 10:00:00.154] GYRO_BIAS: bias_x=0.125 bias_y=-0.231 bias_z=0.348 timestamp=0.001
+[2024-01-15 10:00:00.155] GYRO_BIAS: bias_x=0.122 bias_y=-0.236 bias_z=0.343 timestamp=0.002
+[2024-01-15 10:00:00.156] GYRO_BIAS: bias_x=0.128 bias_y=-0.229 bias_z=0.351 timestamp=0.003
+[2024-01-15 10:00:00.157] GYRO_BIAS: bias_x=0.124 bias_y=-0.233 bias_z=0.346 timestamp=0.004
