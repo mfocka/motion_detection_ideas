@@ -807,6 +807,7 @@ void MotionDetection::_applyModeConfiguration()
     if(_operation_mode == MotionMode::DEBUG) {
         PRINT_RAW = PRINT_INFO = PRINT_ANGLES = true;
         PRINT_QUAT = PRINT_EVENTS = PRINT_BIAS = true;
+        PRINT_ESTIMATOR = true;
     }
 }
 bool MotionDetection::_checkMotionThresholdsWithMode()

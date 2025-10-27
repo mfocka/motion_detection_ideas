@@ -33,18 +33,42 @@ roll = fabsf(roll);    // ❌ This loses directional information
 
 ## Available Tools
 
-### 1. Basic Motion Debug Visualizer (`motion_debug_visualizer.py`)
+### 1. Enhanced Motion Debug Visualizer (`motion_debug_visualizer.py`)
 
-A simple tool that creates plots of:
+An enhanced tool that creates comprehensive plots of:
 - Raw sensor data (accelerometer and gyroscope)
-- ANGLES output
+- ANGLES - Final output angles (altitude, azimuth, zenith)
+- ANGLES_DI - MotionDI euler angles (pitch, yaw, roll)
+- ANGLES_SI - Simple Integration filter (pitch, yaw, roll)
+- ANGLES_CO - Complementary filter (pitch, yaw, roll)
+- ANGLES_FU - Fused angles (pitch, yaw, roll)
 - Gyro bias over time
-- Basic analysis summary
+- Comprehensive angle comparison
+- Enhanced analysis summary
 
 **Usage:**
 ```bash
+# Static file analysis
 python3 motion_debug_visualizer.py <log_file>
 python3 motion_debug_visualizer.py motion_detection.log --output debug_plot.png
+
+# Live data visualization
+python3 enhanced_motion_visualizer.py --live --port COM15
+python3 enhanced_motion_visualizer.py --live --port /dev/ttyUSB0 --baudrate 115200
+```
+
+### 1b. Live Motion Plotter (`live_motion_plotter.py`)
+
+A dedicated live visualization tool for real-time monitoring:
+- Real-time plotting of all angle sources
+- Automatic serial connection management
+- Optimized for continuous monitoring
+- Side-by-side comparison of all filters
+
+**Usage:**
+```bash
+python3 live_motion_plotter.py --port COM15
+python3 live_motion_plotter.py --port /dev/ttyUSB0 --baudrate 115200 --samples 1000
 ```
 
 ### 2. Advanced Motion Parser (`advanced_motion_parser.py`)
@@ -69,41 +93,75 @@ python3 advanced_motion_parser.py motion_detection.log --csv --output my_analysi
 
 ## How to Use These Tools
 
-### Step 1: Collect Log Data
+### Option A: Live Real-Time Analysis (Recommended)
+
+#### Step 1: Connect Device and Start Live Plotter
+```bash
+cd app/src/motion_detection/testing
+
+# For Windows
+python3 live_motion_plotter.py --port COM15
+
+# For Linux
+python3 live_motion_plotter.py --port /dev/ttyUSB0
+```
+
+#### Step 2: Enable Motion Detection Debug Output
+The live plotter automatically enables debug output, but you can manually control it:
+```
+# In the device console
+setdebug 127    # Enable all debug outputs including PRINT_ESTIMATOR
+printraw 1      # Enable raw sensor data
+```
+
+### Option B: File-Based Analysis
+
+#### Step 1: Collect Log Data
 Run your motion detection system and capture the log output to a file:
 ```bash
 ./your_motion_detection_program > motion_detection.log 2>&1
 ```
 
-### Step 2: Analyze with Basic Tool
+#### Step 2: Analyze with Enhanced Visualizer
 ```bash
 cd app/src/motion_detection/testing
-python3 motion_debug_visualizer.py ../../motion_detection.log
+python3 motion_debug_visualizer.py motion_detection.log
 ```
 
-### Step 3: Deep Analysis with Advanced Tool
+#### Step 3: Deep Analysis with Advanced Tool
 ```bash
-python3 advanced_motion_parser.py ../../motion_detection.log --csv
+python3 advanced_motion_parser.py motion_detection.log --csv
 ```
 
 ### Step 4: Review the Analysis
-The tools will show you:
+The enhanced tools will show you:
+- **ANGLES**: Final output angles (altitude, azimuth, zenith)
+- **ANGLES_DI**: MotionDI euler angles (pitch, yaw, roll)
+- **ANGLES_SI**: Simple Integration filter output (pitch, yaw, roll)
+- **ANGLES_CO**: Complementary filter output (pitch, yaw, roll)
+- **ANGLES_FU**: Fused angles combining MDI + MotionEstimator (pitch, yaw, roll)
 - Whether angles are all zero (indicating the fabsf() issue)
-- Raw sensor data patterns
-- MotionEstimator internal state
-- Recommendations for fixing the issue
+- Raw sensor data patterns and quality
+- Filter comparison and performance
+- Comprehensive recommendations for debugging
 
 ## Expected Output
 
 ### When Working Correctly:
-- ANGLES should show varying values like: `1.802,-118.835,3.832`
+- **ANGLES** should show varying values like: `1.802,-118.835,3.832`
+- **ANGLES_DI** should show MotionDI euler angles: `pitch,yaw,roll`
+- **ANGLES_SI** should show simple filter: `pitch,yaw,roll`
+- **ANGLES_CO** should show complementary filter: `pitch,yaw,roll`
+- **ANGLES_FU** should show fused output: `pitch,yaw,roll`
 - Raw sensor data should show realistic accelerometer/gyroscope readings
-- MotionEstimator debug should show non-zero filter outputs
+- All angle sources should be consistent and non-zero
 
 ### When Broken (Current State):
-- ANGLES shows: `0,0,0` for all samples
+- **ANGLES** shows: `0,0,0` for all samples
+- **ANGLES_DI** may show normal MotionDI calculations
+- **ANGLES_SI/CO/FU** may show filter outputs but final result is zero
 - Raw sensor data may look normal
-- MotionEstimator may show internal calculations but final output is zero
+- The issue is in the coordinate conversion/fabsf() application
 
 ## Fixing the Issue
 
@@ -127,8 +185,13 @@ if (yaw < -180.0f) yaw = -180.0f;
 
 The tools require Python 3 with these packages:
 ```bash
-pip3 install numpy matplotlib
+pip3 install numpy matplotlib pyserial
 ```
+
+### For Live Mode:
+- Ensure `console_reader.py` is available in `motion_detection_ideas/`
+- Serial connection to the motion detection device
+- Device should support debug commands (`setdebug`, `printraw`)
 
 ## Troubleshooting
 
